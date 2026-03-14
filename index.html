@@ -3,154 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Perfect PWA Editor</title>
+    <title>Ultimate Tab Editor</title>
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    
     <style>
-        /* CSSをここに集約 */
         :root {
-            --bg-color: #1e1e1e;
-            --header-bg: #2d2d2d;
-            --accent-color: #007acc;
-            --text-color: #cccccc;
+            --bg: #1e1e1e;
+            --header: #252526;
+            --tab-bg: #2d2d2d;
+            --tab-active: #1e1e1e;
+            --accent: #007acc;
+            --text: #cccccc;
         }
 
         body, html {
             margin: 0; padding: 0; height: 100%; width: 100%;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-family: -apple-system, sans-serif;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
+            background: var(--bg); color: var(--text);
+            font-family: -apple-system, system-ui, sans-serif;
+            display: flex; flex-direction: column; overflow: hidden;
         }
 
+        /* ヘッダーとボタン */
         header {
-            height: 50px;
-            background: var(--header-bg);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 15px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            z-index: 100;
+            background: var(--header); height: 44px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 10px; border-bottom: 1px solid #333;
         }
-
-        .logo { font-weight: bold; font-size: 14px; color: var(--accent-color); }
-
-        .btn-group { display: flex; gap: 8px; }
-
+        .btn-group { display: flex; gap: 5px; }
         .btn {
-            background: #444;
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
+            background: #444; color: #fff; border: none; padding: 5px 10px;
+            border-radius: 3px; font-size: 11px; cursor: pointer;
         }
+        .btn-primary { background: var(--accent); }
 
-        .btn-primary { background: var(--accent-color); }
-
-        /* エディタエリア */
-        #editor-container {
-            flex: 1;
-            overflow: hidden;
-            position: relative;
+        /* タブバー（横スクロール可能） */
+        #tab-bar {
+            display: flex; background: var(--header);
+            overflow-x: auto; white-space: nowrap;
+            scrollbar-width: none; /* Firefox */
         }
-
-        /* CodeMirrorのカスタマイズ */
-        .cm-editor { height: 100%; font-size: 14px; }
-        .cm-scroller { overflow: auto; }
-
-        /* ミニマップ風の視認性を高める調整 */
-        .cm-minimap { 
-            position: absolute; 
-            right: 0; top: 0; 
-            width: 60px; height: 100%; 
-            background: rgba(255,255,255,0.03);
-            border-left: 1px solid rgba(255,255,255,0.1);
-            pointer-events: none; /* スマホでは誤操作防止のため表示のみ */
+        #tab-bar::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+        
+        .tab {
+            padding: 8px 15px; font-size: 12px; background: var(--tab-bg);
+            border-right: 1px solid #111; cursor: pointer; display: flex; align-items: center;
         }
+        .tab.active { background: var(--tab-active); color: #fff; border-top: 1px solid var(--accent); }
+        .tab-close { margin-left: 8px; font-size: 14px; opacity: 0.5; }
+
+        /* エディタ */
+        #editor-wrapper { flex: 1; position: relative; overflow: hidden; }
+        .cm-editor { height: 100%; }
+        
+        /* ミニマップのドラッグ可能エリア強調 */
+        .cm-minimap-overlay { background: rgba(255, 255, 255, 0.05) !important; cursor: ns-resize !important; }
     </style>
 </head>
 <body>
 
 <header>
-    <div class="logo">CODE.PWA</div>
     <div class="btn-group">
-        <label for="file-upload" class="btn">Upload</label>
-        <input type="file" id="file-upload" style="display:none">
-        <button id="download-btn" class="btn btn-primary">Download</button>
+        <button class="btn" onclick="addTab()">+ New</button>
+        <label class="btn">Upload<input type="file" id="up" style="display:none"></label>
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" onclick="downloadCurrent()">Download</button>
     </div>
 </header>
 
-<div id="editor-container"></div>
+<div id="tab-bar"></div>
+<div id="editor-wrapper"></div>
 
-<!-- ESM(Modern JS)を利用してCodeMirror 6とミニマップを読み込み -->
 <script type="module">
     import { EditorView, basicSetup } from "https://esm.sh/codemirror";
     import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
     import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
     import { showMinimap } from "https://esm.sh/@replit/codemirror-minimap";
 
-    const container = document.getElementById("editor-container");
+    // 状態管理
+    let files = JSON.parse(localStorage.getItem('pwa-files')) || [
+        { id: Date.now(), name: 'main.js', content: '// Welcome\nconsole.log("Hello World");' }
+    ];
+    let activeId = files[0].id;
+    let view;
 
-    // 保存データの取得
-    const savedCode = localStorage.getItem("pwa-editor-code") || "// Happy Coding!\nfunction hello() {\n  console.log('world');\n}";
+    const tabBar = document.getElementById('tab-bar');
+    const wrapper = document.getElementById('editor-wrapper');
 
-    // エディタの初期化
-    const view = new EditorView({
-        doc: savedCode,
-        extensions: [
-            basicSetup,
-            javascript(),
-            oneDark,
-            showMinimap.compute([], () => ({
-                create: () => {
-                    const dom = document.createElement("div");
-                    dom.className = "cm-minimap";
-                    return { dom };
-                },
-                showOverlay: "always",
-            })),
-            EditorView.updateListener.of((update) => {
-                if (update.docChanged) {
-                    localStorage.setItem("pwa-editor-code", update.state.doc.toString());
-                }
-            })
-        ],
-        parent: container
-    });
+    // エディタの初期化/更新
+    function initEditor() {
+        const file = files.find(f => f.id === activeId);
+        if (view) view.destroy();
 
-    // アップロード機能
-    document.getElementById('file-upload').addEventListener('change', async (e) => {
+        view = new EditorView({
+            doc: file.content,
+            extensions: [
+                basicSetup,
+                javascript(),
+                oneDark,
+                showMinimap.compute([], () => ({
+                    create: (view) => {
+                        const dom = document.createElement("div");
+                        return { dom };
+                    },
+                    showOverlay: "always", // 常にオーバーレイを表示（ドラッグしやすくする）
+                })),
+                EditorView.updateListener.of(update => {
+                    if (update.docChanged) {
+                        file.content = update.state.doc.toString();
+                        save();
+                    }
+                })
+            ],
+            parent: wrapper
+        });
+    }
+
+    // タブの描画
+    function renderTabs() {
+        tabBar.innerHTML = '';
+        files.forEach(file => {
+            const div = document.createElement('div');
+            div.className = `tab ${file.id === activeId ? 'active' : ''}`;
+            div.innerHTML = `${file.name} <span class="tab-close" data-id="${file.id}">×</span>`;
+            div.onclick = () => { activeId = file.id; render(); };
+            tabBar.appendChild(div);
+        });
+
+        // 閉じるボタンの処理
+        document.querySelectorAll('.tab-close').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                const id = parseInt(btn.dataset.id);
+                if (files.length <= 1) return;
+                files = files.filter(f => f.id !== id);
+                if (activeId === id) activeId = files[0].id;
+                render();
+            };
+        });
+    }
+
+    function save() { localStorage.setItem('pwa-files', JSON.stringify(files)); }
+    function render() { renderTabs(); initEditor(); save(); }
+
+    // 公開関数
+    window.addTab = () => {
+        const name = prompt("File name:", "script.js");
+        if (!name) return;
+        const newFile = { id: Date.now(), name: name, content: "" };
+        files.push(newFile);
+        activeId = newFile.id;
+        render();
+    };
+
+    window.downloadCurrent = () => {
+        const file = files.find(f => f.id === activeId);
+        const blob = new Blob([file.content], { type: 'text/javascript' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = file.name;
+        a.click();
+    };
+
+    document.getElementById('up').onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         const text = await file.text();
-        view.dispatch({
-            changes: { from: 0, to: view.state.doc.length, insert: text }
-        });
-    });
+        const newFile = { id: Date.now(), name: file.name, content: text };
+        files.push(newFile);
+        activeId = newFile.id;
+        render();
+    };
 
-    // ダウンロード機能
-    document.getElementById('download-btn').addEventListener('click', () => {
-        const code = view.state.doc.toString();
-        const blob = new Blob([code], { type: 'text/javascript' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'script.js';
-        a.click();
-        URL.revokeObjectURL(url);
-    });
+    // 初回起動
+    render();
 
-    // サービスワーカー登録
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js');
-    }
+    // PWA登録
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 </script>
 </body>
 </html>
