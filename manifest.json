@@ -1,15 +1,16 @@
 {
-  "name": "Mobile Code Editor",
+  "name": "Perfect Code Editor",
   "short_name": "Editor",
   "start_url": "index.html",
   "display": "standalone",
-  "background_color": "#282a36",
-  "theme_color": "#282a36",
+  "background_color": "#1e1e1e",
+  "theme_color": "#1e1e1e",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/606/606203.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
