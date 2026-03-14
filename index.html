@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ultimate Tab Editor</title>
+    <title>Perfect Editor Pro</title>
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,52 +12,64 @@
             --bg: #1e1e1e;
             --header: #252526;
             --tab-bg: #2d2d2d;
-            --tab-active: #1e1e1e;
             --accent: #007acc;
             --text: #cccccc;
+            --search-bg: #333;
         }
 
         body, html {
             margin: 0; padding: 0; height: 100%; width: 100%;
             background: var(--bg); color: var(--text);
-            font-family: -apple-system, system-ui, sans-serif;
+            font-family: -apple-system, sans-serif;
             display: flex; flex-direction: column; overflow: hidden;
         }
 
-        /* ヘッダーとボタン */
+        /* ヘッダー */
         header {
             background: var(--header); height: 44px;
             display: flex; align-items: center; justify-content: space-between;
-            padding: 0 10px; border-bottom: 1px solid #333;
+            padding: 0 10px; border-bottom: 1px solid #333; flex-shrink: 0;
         }
-        .btn-group { display: flex; gap: 5px; }
+        .btn-group { display: flex; gap: 4px; }
         .btn {
-            background: #444; color: #fff; border: none; padding: 5px 10px;
+            background: #444; color: #fff; border: none; padding: 5px 8px;
             border-radius: 3px; font-size: 11px; cursor: pointer;
         }
         .btn-primary { background: var(--accent); }
 
-        /* タブバー（横スクロール可能） */
+        /* 検索バー */
+        #search-panel {
+            background: var(--search-bg); padding: 8px;
+            display: none; flex-direction: column; gap: 5px;
+            border-bottom: 1px solid #444;
+        }
+        .search-row { display: flex; gap: 5px; }
+        #search-panel input {
+            flex: 1; background: #222; border: 1px solid #555; color: #fff;
+            padding: 4px; border-radius: 3px; font-size: 12px;
+        }
+
+        /* タブバー */
         #tab-bar {
             display: flex; background: var(--header);
-            overflow-x: auto; white-space: nowrap;
-            scrollbar-width: none; /* Firefox */
+            overflow-x: auto; white-space: nowrap; flex-shrink: 0;
         }
-        #tab-bar::-webkit-scrollbar { display: none; } /* Chrome/Safari */
-        
+        #tab-bar::-webkit-scrollbar { display: none; }
         .tab {
             padding: 8px 15px; font-size: 12px; background: var(--tab-bg);
             border-right: 1px solid #111; cursor: pointer; display: flex; align-items: center;
         }
-        .tab.active { background: var(--tab-active); color: #fff; border-top: 1px solid var(--accent); }
-        .tab-close { margin-left: 8px; font-size: 14px; opacity: 0.5; }
+        .tab.active { background: var(--bg); border-top: 1px solid var(--accent); }
 
         /* エディタ */
         #editor-wrapper { flex: 1; position: relative; overflow: hidden; }
         .cm-editor { height: 100%; }
-        
-        /* ミニマップのドラッグ可能エリア強調 */
-        .cm-minimap-overlay { background: rgba(255, 255, 255, 0.05) !important; cursor: ns-resize !important; }
+
+        /* ミニマップ: ドラッグ可能にするための調整 */
+        .cm-minimap-gutter { 
+            width: 60px !important; 
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -65,12 +77,25 @@
 <header>
     <div class="btn-group">
         <button class="btn" onclick="addTab()">+ New</button>
-        <label class="btn">Upload<input type="file" id="up" style="display:none"></label>
+        <button class="btn" onclick="toggleSearch()">Search</button>
+        <button class="btn" onclick="selectAllMatches()">Select All</button>
     </div>
     <div class="btn-group">
-        <button class="btn btn-primary" onclick="downloadCurrent()">Download</button>
+        <button class="btn btn-primary" onclick="downloadCurrent()">Save</button>
     </div>
 </header>
+
+<div id="search-panel">
+    <div class="search-row">
+        <input type="text" id="find-input" placeholder="Find">
+        <button class="btn" onclick="doFindNext()">Next</button>
+    </div>
+    <div class="search-row">
+        <input type="text" id="replace-input" placeholder="Replace with">
+        <button class="btn" onclick="doReplace()">Replace</button>
+        <button class="btn" onclick="doReplaceAll()">All</button>
+    </div>
+</div>
 
 <div id="tab-bar"></div>
 <div id="editor-wrapper"></div>
@@ -80,18 +105,24 @@
     import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
     import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
     import { showMinimap } from "https://esm.sh/@replit/codemirror-minimap";
+    import { 
+        search, 
+        openSearchPanel, 
+        findNext, 
+        replaceNext, 
+        replaceAll, 
+        selectMatches 
+    } from "https://esm.sh/@codemirror/search";
 
-    // 状態管理
-    let files = JSON.parse(localStorage.getItem('pwa-files')) || [
-        { id: Date.now(), name: 'main.js', content: '// Welcome\nconsole.log("Hello World");' }
+    let files = JSON.parse(localStorage.getItem('pwa-v3-files')) || [
+        { id: 1, name: 'index.js', content: 'function hello() {\n  console.log("Hello World");\n}\n\n// Try Search & Replace!' }
     ];
     let activeId = files[0].id;
     let view;
 
-    const tabBar = document.getElementById('tab-bar');
     const wrapper = document.getElementById('editor-wrapper');
+    const tabBar = document.getElementById('tab-bar');
 
-    // エディタの初期化/更新
     function initEditor() {
         const file = files.find(f => f.id === activeId);
         if (view) view.destroy();
@@ -102,17 +133,15 @@
                 basicSetup,
                 javascript(),
                 oneDark,
+                search({ top: true }), // 検索機能を有効化
                 showMinimap.compute([], () => ({
-                    create: (view) => {
-                        const dom = document.createElement("div");
-                        return { dom };
-                    },
-                    showOverlay: "always", // 常にオーバーレイを表示（ドラッグしやすくする）
+                    create: () => ({ dom: document.createElement("div") }),
+                    showOverlay: "always", // ミニマップの現在位置を強調
                 })),
                 EditorView.updateListener.of(update => {
                     if (update.docChanged) {
                         file.content = update.state.doc.toString();
-                        save();
+                        localStorage.setItem('pwa-v3-files', JSON.stringify(files));
                     }
                 })
             ],
@@ -120,66 +149,72 @@
         });
     }
 
-    // タブの描画
-    function renderTabs() {
+    // 検索・置換ロジック
+    window.toggleSearch = () => {
+        const p = document.getElementById('search-panel');
+        p.style.display = p.style.display === 'flex' ? 'none' : 'flex';
+    };
+
+    window.doFindNext = () => {
+        const query = document.getElementById('find-input').value;
+        if (!query) return;
+        // CodeMirrorの内部検索状態を更新して次へ
+        openSearchPanel(view); 
+        const input = document.querySelector('.cm-search-field');
+        if(input) {
+            input.value = query;
+            input.dispatchEvent(new Event('input'));
+            findNext(view);
+        }
+    };
+
+    window.doReplace = () => {
+        const repl = document.getElementById('replace-input').value;
+        const input = document.querySelector('[name="replace"]');
+        if(input) {
+            input.value = repl;
+            replaceNext(view);
+        }
+    };
+
+    window.doReplaceAll = () => replaceAll(view);
+
+    // 指定の単語（または選択中単語）を一括選択
+    window.selectAllMatches = () => {
+        selectMatches(view);
+    };
+
+    // タブ・ファイル管理
+    window.render = () => {
         tabBar.innerHTML = '';
-        files.forEach(file => {
-            const div = document.createElement('div');
-            div.className = `tab ${file.id === activeId ? 'active' : ''}`;
-            div.innerHTML = `${file.name} <span class="tab-close" data-id="${file.id}">×</span>`;
-            div.onclick = () => { activeId = file.id; render(); };
-            tabBar.appendChild(div);
+        files.forEach(f => {
+            const t = document.createElement('div');
+            t.className = `tab ${f.id === activeId ? 'active' : ''}`;
+            t.innerText = f.name;
+            t.onclick = () => { activeId = f.id; render(); };
+            tabBar.appendChild(t);
         });
+        initEditor();
+    };
 
-        // 閉じるボタンの処理
-        document.querySelectorAll('.tab-close').forEach(btn => {
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                const id = parseInt(btn.dataset.id);
-                if (files.length <= 1) return;
-                files = files.filter(f => f.id !== id);
-                if (activeId === id) activeId = files[0].id;
-                render();
-            };
-        });
-    }
-
-    function save() { localStorage.setItem('pwa-files', JSON.stringify(files)); }
-    function render() { renderTabs(); initEditor(); save(); }
-
-    // 公開関数
     window.addTab = () => {
-        const name = prompt("File name:", "script.js");
+        const name = prompt("Filename:", "file.js");
         if (!name) return;
-        const newFile = { id: Date.now(), name: name, content: "" };
-        files.push(newFile);
-        activeId = newFile.id;
+        const id = Date.now();
+        files.push({ id, name, content: "" });
+        activeId = id;
         render();
     };
 
     window.downloadCurrent = () => {
         const file = files.find(f => f.id === activeId);
-        const blob = new Blob([file.content], { type: 'text/javascript' });
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
+        a.href = URL.createObjectURL(new Blob([file.content]));
         a.download = file.name;
         a.click();
     };
 
-    document.getElementById('up').onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const text = await file.text();
-        const newFile = { id: Date.now(), name: file.name, content: text };
-        files.push(newFile);
-        activeId = newFile.id;
-        render();
-    };
-
-    // 初回起動
     render();
-
-    // PWA登録
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 </script>
 </body>
