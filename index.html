@@ -3,42 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile Editor</title>
-    <!-- アプリ化の設定 -->
+    <title>Perfect PWA Editor</title>
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
-    <!-- CodeMirrorのCSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
-    
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #282a36; }
-        .CodeMirror { height: 100vh; font-size: 16px; } /* スマホでズームしないよう16px推奨 */
+        /* CSSをここに集約 */
+        :root {
+            --bg-color: #1e1e1e;
+            --header-bg: #2d2d2d;
+            --accent-color: #007acc;
+            --text-color: #cccccc;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            height: 50px;
+            background: var(--header-bg);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 100;
+        }
+
+        .logo { font-weight: bold; font-size: 14px; color: var(--accent-color); }
+
+        .btn-group { display: flex; gap: 8px; }
+
+        .btn {
+            background: #444;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .btn-primary { background: var(--accent-color); }
+
+        /* エディタエリア */
+        #editor-container {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* CodeMirrorのカスタマイズ */
+        .cm-editor { height: 100%; font-size: 14px; }
+        .cm-scroller { overflow: auto; }
+
+        /* ミニマップ風の視認性を高める調整 */
+        .cm-minimap { 
+            position: absolute; 
+            right: 0; top: 0; 
+            width: 60px; height: 100%; 
+            background: rgba(255,255,255,0.03);
+            border-left: 1px solid rgba(255,255,255,0.1);
+            pointer-events: none; /* スマホでは誤操作防止のため表示のみ */
+        }
     </style>
 </head>
 <body>
 
-<textarea id="editor">// ここにコードを書く
-function hello() {
-  console.log("Hello Mobile VS Code!");
-}</textarea>
+<header>
+    <div class="logo">CODE.PWA</div>
+    <div class="btn-group">
+        <label for="file-upload" class="btn">Upload</label>
+        <input type="file" id="file-upload" style="display:none">
+        <button id="download-btn" class="btn btn-primary">Download</button>
+    </div>
+</header>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
-<script>
+<div id="editor-container"></div>
+
+<!-- ESM(Modern JS)を利用してCodeMirror 6とミニマップを読み込み -->
+<script type="module">
+    import { EditorView, basicSetup } from "https://esm.sh/codemirror";
+    import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
+    import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
+    import { showMinimap } from "https://esm.sh/@replit/codemirror-minimap";
+
+    const container = document.getElementById("editor-container");
+
+    // 保存データの取得
+    const savedCode = localStorage.getItem("pwa-editor-code") || "// Happy Coding!\nfunction hello() {\n  console.log('world');\n}";
+
     // エディタの初期化
-    var editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
-        lineNumbers: true,
-        theme: "dracula",
-        mode: "javascript",
-        indentUnit: 4,
-        smartIndent: true,
-        inputStyle: "contenteditable" // モバイルでの入力をスムーズにする設定
+    const view = new EditorView({
+        doc: savedCode,
+        extensions: [
+            basicSetup,
+            javascript(),
+            oneDark,
+            showMinimap.compute([], () => ({
+                create: () => {
+                    const dom = document.createElement("div");
+                    dom.className = "cm-minimap";
+                    return { dom };
+                },
+                showOverlay: "always",
+            })),
+            EditorView.updateListener.of((update) => {
+                if (update.docChanged) {
+                    localStorage.setItem("pwa-editor-code", update.state.doc.toString());
+                }
+            })
+        ],
+        parent: container
     });
 
-    // サービスワーカーの登録
+    // アップロード機能
+    document.getElementById('file-upload').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const text = await file.text();
+        view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: text }
+        });
+    });
+
+    // ダウンロード機能
+    document.getElementById('download-btn').addEventListener('click', () => {
+        const code = view.state.doc.toString();
+        const blob = new Blob([code], { type: 'text/javascript' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'script.js';
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    // サービスワーカー登録
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js');
     }
