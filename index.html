@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Editor</title>
+    <!-- アプリ化の設定 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- CodeMirrorのCSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+    
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #282a36; }
+        .CodeMirror { height: 100vh; font-size: 16px; } /* スマホでズームしないよう16px推奨 */
+    </style>
+</head>
+<body>
+
+<textarea id="editor">// ここにコードを書く
+function hello() {
+  console.log("Hello Mobile VS Code!");
+}</textarea>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+<script>
+    // エディタの初期化
+    var editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
+        lineNumbers: true,
+        theme: "dracula",
+        mode: "javascript",
+        indentUnit: 4,
+        smartIndent: true,
+        inputStyle: "contenteditable" // モバイルでの入力をスムーズにする設定
+    });
+
+    // サービスワーカーの登録
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+    }
+</script>
+</body>
+</html>
