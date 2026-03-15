@@ -1,20 +1,15 @@
 :root {
-    --bg-color: #1e1e1e;
-    --tab-bg: #2d2d2d;
-    --tab-active: #1e1e1e;
-    --text-color: #d4d4d4;
-    --accent: #007acc;
+    --bg-color: #282c34;
+    --tab-bg: #21252b;
+    --tab-active: #282c34;
+    --text-color: #abb2bf;
+    --accent: #61afef;
 }
 
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body, html {
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     background-color: var(--bg-color);
     color: var(--text-color);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -22,107 +17,55 @@ body, html {
 }
 
 #app-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    height: 100dvh;
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
 }
 
 /* タブエリア */
 #tabs-container {
-    display: flex;
-    background-color: #252526;
-    height: 40px;
-    align-items: center;
-    overflow-x: auto;
-    scrollbar-width: none;
+    display: flex; background-color: #1e1e24; height: 40px;
+    align-items: center; overflow-x: auto; scrollbar-width: none;
 }
 #tabs-container::-webkit-scrollbar { display: none; }
-
 #tabs { display: flex; height: 100%; }
-
 .tab {
-    padding: 0 15px;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    background-color: var(--tab-bg);
-    border-right: 1px solid #1e1e1e;
-    cursor: pointer;
-    white-space: nowrap;
-    font-size: 14px;
+    padding: 0 15px; height: 100%; display: flex; align-items: center;
+    background-color: var(--tab-bg); border-right: 1px solid #181a1f;
+    cursor: pointer; white-space: nowrap; font-size: 14px;
 }
 .tab.active {
-    background-color: var(--tab-active);
-    color: var(--accent);
+    background-color: var(--tab-active); color: var(--accent);
     border-top: 2px solid var(--accent);
 }
-.tab-close { margin-left: 10px; font-size: 12px; color: #999; }
-.icon-btn {
-    background: none; border: none; color: white; padding: 0 15px; height: 100%; cursor: pointer;
-}
+.tab-close { margin-left: 10px; font-size: 12px; color: #777; }
+.icon-btn { background: none; border: none; color: white; padding: 0 15px; height: 100%; }
 
-/* エディタエリア */
-#editor-container {
-    flex: 1;
-    width: 100%;
-    position: relative;
-}
+/* エディタエリア (CodeMirror用) */
+#editor-container { flex: 1; width: 100%; position: relative; overflow: hidden; }
+.cm-editor { height: 100%; width: 100%; outline: none; }
+.cm-scroller { font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 14px; }
+.cm-minimap { opacity: 0.8; } /* ミニマップの透過調整 */
 
-/* ツールバー (横スクロール対応) */
+/* ツールバー */
 #toolbar {
-    height: 55px;
-    background-color: #333333;
-    display: flex;
-    align-items: center;
-    padding: 0 10px;
-    overflow-x: auto; /* 横スワイプ可能に */
-    scrollbar-width: none;
-    gap: 8px; /* ボタン間の隙間 */
+    height: 55px; background-color: #21252b; display: flex;
+    align-items: center; padding: 0 10px; overflow-x: auto; gap: 8px;
+    border-top: 1px solid #181a1f;
 }
-#toolbar::-webkit-scrollbar { display: none; }
-
 .tool-btn {
-    flex: 0 0 auto; /* 縮まないように固定 */
-    background: none;
-    border: none;
-    color: #cccccc;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    cursor: pointer;
-    width: 55px;
-    height: 100%;
+    flex: 0 0 auto; background: none; border: none; color: #abb2bf;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; font-size: 11px; cursor: pointer; width: 65px; height: 100%;
 }
-.tool-btn i {
-    font-size: 18px;
-    margin-bottom: 4px;
-}
+.tool-btn i { font-size: 18px; margin-bottom: 4px; }
 .tool-btn:active { color: var(--accent); }
-
-.separator {
-    width: 1px;
-    height: 30px;
-    background-color: #555;
-    flex: 0 0 auto;
-}
+.separator { width: 1px; height: 30px; background-color: #444; flex: 0 0 auto; }
 
 /* トースト通知 */
 .toast {
-    position: fixed;
-    bottom: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 122, 204, 0.9);
-    color: white;
-    padding: 10px 20px;
-    border-radius: 20px;
-    font-size: 14px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-    z-index: 1000;
+    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+    background: rgba(97, 175, 239, 0.9); color: #fff; padding: 10px 20px;
+    border-radius: 20px; font-size: 14px; opacity: 0; pointer-events: none;
+    transition: opacity 0.3s; z-index: 1000;
 }
 .toast.show { opacity: 1; }
