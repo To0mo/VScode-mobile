@@ -1,13 +1,13 @@
 {
-  "name": "Perfect Tab Editor",
-  "short_name": "Editor",
-  "start_url": "index.html",
+  "name": "Mobile Code Pro",
+  "short_name": "CodePro",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#1e1e1e",
-  "theme_color": "#252526",
+  "theme_color": "#1e1e1e",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/606/606203.png",
+      "src": "https://cdn-icons-png.flaticon.com/512/711/711284.png",
       "sizes": "512x512",
       "type": "image/png"
     }
