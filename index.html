@@ -3,327 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile VS Code PWA</title>
+    <title>Mobile Code Pro</title>
     <link rel="manifest" href="manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <style>
-        /* VS Code Dark Theme Colors */
-        :root {
-            --bg-base: #1e1e1e;
-            --bg-sidebar: #252526;
-            --bg-header: #333333;
-            --bg-tab: #2d2d2d;
-            --bg-tab-active: #1e1e1e;
-            --accent: #007acc;
-            --text-main: #cccccc;
-            --text-muted: #858585;
-            --border: #3c3c3c;
-            --statusbar-bg: #007acc;
-            --statusbar-fg: #ffffff;
-        }
-
-        body, html {
-            margin: 0; padding: 0; height: 100%; width: 100%;
-            background: var(--bg-base); color: var(--text-main);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            overflow: hidden; display: flex; flex-direction: column;
-        }
-
-        /* Top Header (Activity Bar) */
-        header {
-            height: 40px; background: var(--bg-header); display: flex;
-            align-items: center; justify-content: space-between; padding: 0 10px;
-            border-bottom: 1px solid var(--border); flex-shrink: 0;
-        }
-        .header-left, .header-right { display: flex; align-items: center; gap: 10px; }
-        .icon-btn {
-            background: none; border: none; color: var(--text-main);
-            font-size: 18px; cursor: pointer; padding: 5px; border-radius: 4px;
-        }
-        .icon-btn:active { background: rgba(255,255,255,0.1); }
-        .title { font-size: 13px; font-weight: 600; }
-
-        /* Main Workspace */
-        .workspace { display: flex; flex: 1; overflow: hidden; position: relative; }
-
-        /* Sidebar (Explorer) - モバイルではドロワー式 */
-        .sidebar {
-            width: 250px; background: var(--bg-sidebar); border-right: 1px solid var(--border);
-            display: flex; flex-direction: column; position: absolute; height: 100%; z-index: 100;
-            transform: translateX(-100%); transition: transform 0.2s ease;
-        }
-        .sidebar.open { transform: translateX(0); }
-        .sidebar-header {
-            padding: 10px; font-size: 11px; text-transform: uppercase; font-weight: bold;
-            color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;
-        }
-        .file-list { flex: 1; overflow-y: auto; padding-bottom: 10px; }
-        .file-item {
-            padding: 5px 10px 5px 20px; font-size: 13px; cursor: pointer;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .file-item.active { background: rgba(255,255,255,0.05); color: #fff; }
-        .delete-btn { color: #f48771; font-size: 12px; opacity: 0; }
-        .file-item:active .delete-btn, .file-item:hover .delete-btn { opacity: 1; }
-
-        /* Editor Area */
-        .editor-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; width: 100%; }
-        
-        /* Tabs */
-        .tabs {
-            display: flex; background: var(--bg-sidebar); overflow-x: auto;
-            flex-shrink: 0; border-bottom: 1px solid var(--border);
-        }
-        .tabs::-webkit-scrollbar { display: none; }
-        .tab {
-            padding: 8px 12px; font-size: 12px; background: var(--bg-tab);
-            border-right: 1px solid var(--border); display: flex; align-items: center; gap: 8px;
-            cursor: pointer; min-width: 80px; max-width: 150px;
-        }
-        .tab.active { background: var(--bg-tab-active); color: #fff; border-top: 1px solid var(--accent); }
-        .tab-close { font-size: 14px; color: var(--text-muted); padding: 2px; }
-
-        /* CodeMirror Container */
-        #editor-container { flex: 1; overflow: hidden; position: relative; }
-        .cm-editor { height: 100%; outline: none !important; font-size: 14px; font-family: 'Menlo', 'Monaco', monospace; }
-        
-        /* Minimap Adjustments - ドラッグ可能にする設定 */
-        .cm-minimap { cursor: ns-resize !important; pointer-events: auto !important; }
-
-        /* Status Bar */
-        .status-bar {
-            height: 22px; background: var(--statusbar-bg); color: var(--statusbar-fg);
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 10px; font-size: 11px; flex-shrink: 0;
-        }
-        
-        /* Overlay to close sidebar */
-        .overlay {
-            position: absolute; inset: 0; background: rgba(0,0,0,0.5);
-            z-index: 99; display: none;
-        }
-        .overlay.active { display: block; }
-    </style>
+    <link rel="stylesheet" href="style.css">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 </head>
 <body>
-
-<header>
-    <div class="header-left">
-        <button class="icon-btn" onclick="toggleSidebar()">☰</button>
-        <span class="title">Mobile VS Code</span>
-    </div>
-    <div class="header-right">
-        <button class="icon-btn" onclick="openSearch()">🔍</button>
-        <button class="icon-btn" onclick="downloadCurrent()">💾</button>
-    </div>
-</header>
-
-<div class="workspace">
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <span>Explorer</span>
-            <div>
-                <button class="icon-btn" style="font-size:12px; padding:0;" onclick="newFile()">+ 📄</button>
-                <label style="cursor:pointer; margin-left:5px;">
-                    + 📁<input type="file" id="upload-btn" style="display:none">
-                </label>
-            </div>
+    <div id="app-container">
+        <!-- タブバー -->
+        <div id="tabs-container">
+            <div id="tabs"></div>
+            <button id="btn-new-tab" class="icon-btn"><i class="fas fa-plus"></i></button>
         </div>
-        <div class="file-list" id="file-list"></div>
-    </div>
-    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
 
-    <div class="editor-area">
-        <div class="tabs" id="tabs"></div>
+        <!-- エディタ本体 -->
         <div id="editor-container"></div>
+
+        <!-- 下部ツールバー -->
+        <div id="toolbar">
+            <button id="btn-search" class="tool-btn"><i class="fas fa-search"></i> 検索</button>
+            <button id="btn-replace" class="tool-btn"><i class="fas fa-exchange-alt"></i> 置換</button>
+            <button id="btn-save" class="tool-btn"><i class="fas fa-save"></i> 保存</button>
+            <button id="btn-save-as" class="tool-btn"><i class="fas fa-file-download"></i> DL保存</button>
+            <button id="btn-rename" class="tool-btn"><i class="fas fa-pen"></i> 名前変更</button>
+        </div>
     </div>
-</div>
 
-<div class="status-bar">
-    <div id="status-left">Ready</div>
-    <div id="status-right">JavaScript</div>
-</div>
-
-<!-- ESMモジュールのロード (CodeMirror 6のフル機能) -->
-<script type="module">
-    import { EditorState } from "https://esm.sh/@codemirror/state";
-    import { EditorView, basicSetup } from "https://esm.sh/codemirror";
-    import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
-    import { html } from "https://esm.sh/@codemirror/lang-html";
-    import { css } from "https://esm.sh/@codemirror/lang-css";
-    import { json } from "https://esm.sh/@codemirror/lang-json";
-    import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
-    import { showMinimap } from "https://esm.sh/@replit/codemirror-minimap";
-    import { search, openSearchPanel } from "https://esm.sh/@codemirror/search";
-    import { autocompletion } from "https://esm.sh/@codemirror/autocomplete";
-
-    // --- State Management ---
-    let files = JSON.parse(localStorage.getItem('vscode-pwa-files')) || [
-        { id: '1', name: 'main.js', content: '// 完璧なモバイルVS Codeへようこそ\nfunction ultimateEditor() {\n  console.log("Awesome!");\n}\n\n// 🔍 アイコンから検索・置換が可能\n// ☰ アイコンからエクスプローラーを展開' }
-    ];
-    let activeId = files[0].id;
-    let editorView = null;
-
-    // --- DOM Elements ---
-    const editorContainer = document.getElementById('editor-container');
-    const tabsContainer = document.getElementById('tabs');
-    const fileListContainer = document.getElementById('file-list');
-    const statusLeft = document.getElementById('status-left');
-    const statusRight = document.getElementById('status-right');
-
-    // --- Language Detection ---
-    function getLanguageExtension(filename) {
-        if (filename.endsWith('.html')) return html();
-        if (filename.endsWith('.css')) return css();
-        if (filename.endsWith('.json')) return json();
-        return javascript(); // default
-    }
-
-    // --- Editor Initialization ---
-    function initEditor() {
-        const file = files.find(f => f.id === activeId);
-        if (!file) return;
-
-        if (editorView) editorView.destroy();
-
-        const state = EditorState.create({
-            doc: file.content,
-            extensions: [
-                basicSetup, // 行番号、折りたたみ、カッコ補完など一式
-                getLanguageExtension(file.name),
-                oneDark, // VS Code風ダークテーマ
-                autocompletion(), // オートコンプリート
-                search({ top: true }), // 検索/置換パネル機能
-                showMinimap.compute([], () => ({
-                    create: () => ({ dom: document.createElement("div") }),
-                    showOverlay: "always", // 常にオーバーレイを表示（ドラッグ可能にするため）
-                })),
-                EditorView.updateListener.of((update) => {
-                    if (update.docChanged) {
-                        file.content = update.state.doc.toString();
-                        saveState();
-                    }
-                    // ステータスバー（カーソル位置）の更新
-                    if (update.selectionSet) {
-                        const pos = update.state.selection.main.head;
-                        const line = update.state.doc.lineAt(pos);
-                        statusLeft.innerText = `Ln ${line.number}, Col ${pos - line.from + 1}`;
-                    }
-                })
-            ]
-        });
-
-        editorView = new EditorView({ state, parent: editorContainer });
-        statusRight.innerText = file.name.split('.').pop().toUpperCase();
-    }
-
-    // --- UI Renderers ---
-    function renderTabs() {
-        tabsContainer.innerHTML = '';
-        files.forEach(f => {
-            const div = document.createElement('div');
-            div.className = `tab ${f.id === activeId ? 'active' : ''}`;
-            div.innerHTML = `<span style="overflow:hidden; text-overflow:ellipsis;">${f.name}</span> <span class="tab-close" data-id="${f.id}">×</span>`;
-            div.onclick = (e) => {
-                if(e.target.classList.contains('tab-close')) {
-                    files = files.filter(file => file.id !== f.id);
-                    if(files.length === 0) files.push({ id: Date.now().toString(), name: 'untitled.js', content: '' });
-                    if(activeId === f.id) activeId = files[0].id;
-                } else {
-                    activeId = f.id;
-                }
-                renderAll();
-            };
-            tabsContainer.appendChild(div);
-        });
-    }
-
-    function renderExplorer() {
-        fileListContainer.innerHTML = '';
-        files.forEach(f => {
-            const div = document.createElement('div');
-            div.className = `file-item ${f.id === activeId ? 'active' : ''}`;
-            div.innerHTML = `<span>📄 ${f.name}</span> <span class="delete-btn" data-id="${f.id}">🗑</span>`;
-            div.onclick = (e) => {
-                if(e.target.classList.contains('delete-btn')) {
-                    files = files.filter(file => file.id !== f.id);
-                    if(files.length === 0) files.push({ id: Date.now().toString(), name: 'untitled.js', content: '' });
-                    if(activeId === f.id) activeId = files[0].id;
-                } else {
-                    activeId = f.id;
-                    toggleSidebar(); // モバイルではファイル選択後に閉じる
-                }
-                renderAll();
-            };
-            fileListContainer.appendChild(div);
-        });
-    }
-
-    function saveState() {
-        localStorage.setItem('vscode-pwa-files', JSON.stringify(files));
-    }
-
-    function renderAll() {
-        renderTabs();
-        renderExplorer();
-        initEditor();
-        saveState();
-    }
-
-    // --- Global Actions (Window Object にバインド) ---
-    window.toggleSidebar = () => {
-        const sb = document.getElementById('sidebar');
-        const ov = document.getElementById('overlay');
-        sb.classList.toggle('open');
-        ov.classList.toggle('active');
-    };
-
-    window.newFile = () => {
-        const name = prompt("File name:", "newFile.js");
-        if (!name) return;
-        const id = Date.now().toString();
-        files.push({ id, name, content: "" });
-        activeId = id;
-        renderAll();
-    };
-
-    window.openSearch = () => {
-        if(editorView) {
-            openSearchPanel(editorView);
-            // パネルが開いたらフォーカスを当てる
-            setTimeout(() => {
-                const searchInput = document.querySelector('.cm-search-field');
-                if(searchInput) searchInput.focus();
-            }, 50);
-        }
-    };
-
-    window.downloadCurrent = () => {
-        const file = files.find(f => f.id === activeId);
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([file.content]));
-        a.download = file.name;
-        a.click();
-    };
-
-    document.getElementById('upload-btn').onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const text = await file.text();
-        const id = Date.now().toString();
-        files.push({ id, name: file.name, content: text });
-        activeId = id;
-        renderAll();
-    };
-
-    // --- Bootstrap ---
-    renderAll();
-
-    // PWA Service Worker Registration
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js');
-    }
-</script>
+    <script src="app.js"></script>
 </body>
 </html>
