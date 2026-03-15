@@ -4,11 +4,102 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mobile Code Pro</title>
-    <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css">
+    <!-- アイコン用フォント -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* ==========================================
+           デザイン・レイアウト (CSS)
+           ========================================== */
+        :root {
+            --bg-color: #1e1e1e;
+            --tab-bg: #2d2d2d;
+            --tab-active: #1e1e1e;
+            --text-color: #d4d4d4;
+            --accent: #007acc;
+            --toolbar-bg: #252526;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100%; height: 100%;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            /* モバイルブラウザでのスワイプ戻る等を防止 */
+            overscroll-behavior-y: none; 
+        }
+
+        #app-container {
+            display: flex; flex-direction: column;
+            height: 100vh; height: 100dvh; /* iOS Safariの下部バー対応 */
+        }
+
+        /* ----- タブエリア ----- */
+        #tabs-container {
+            display: flex; background-color: var(--toolbar-bg); height: 40px;
+            align-items: center; overflow-x: auto; scrollbar-width: none;
+        }
+        #tabs-container::-webkit-scrollbar { display: none; }
+        #tabs { display: flex; height: 100%; }
+
+        .tab {
+            padding: 0 15px; height: 100%; display: flex; align-items: center;
+            background-color: var(--tab-bg); border-right: 1px solid #1e1e1e;
+            cursor: pointer; white-space: nowrap; font-size: 14px; transition: 0.2s;
+        }
+        .tab.active {
+            background-color: var(--tab-active); color: var(--accent);
+            border-top: 2px solid var(--accent);
+        }
+        .tab-close { margin-left: 10px; font-size: 12px; color: #999; padding: 5px; }
+        .tab-close:active { color: white; }
+        
+        .icon-btn { background: none; border: none; color: white; padding: 0 15px; height: 100%; cursor: pointer; }
+
+        /* ----- エディタエリア ----- */
+        #editor-container {
+            flex: 1; width: 100%; position: relative;
+        }
+
+        /* ロード中の表示 */
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #888; font-size: 14px; pointer-events: none;
+        }
+
+        /* ----- 下部ツールバー ----- */
+        #toolbar {
+            height: 55px; background-color: var(--toolbar-bg); display: flex;
+            align-items: center; padding: 0 5px; overflow-x: auto; gap: 4px;
+            border-top: 1px solid #333; scrollbar-width: none;
+        }
+        #toolbar::-webkit-scrollbar { display: none; }
+
+        .tool-btn {
+            flex: 0 0 auto; background: none; border: none; color: #ccc;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; font-size: 11px; cursor: pointer; width: 65px; height: 100%;
+            border-radius: 6px;
+        }
+        .tool-btn:active { background-color: #333; color: var(--accent); }
+        .tool-btn i { font-size: 18px; margin-bottom: 4px; }
+        
+        .separator { width: 1px; height: 30px; background-color: #444; flex: 0 0 auto; margin: 0 5px; }
+
+        /* ----- 通知トースト ----- */
+        .toast {
+            position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 122, 204, 0.95); color: white; padding: 10px 20px;
+            border-radius: 20px; font-size: 14px; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s; z-index: 1000; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .toast.show { opacity: 1; }
+    </style>
 </head>
 <body>
+
     <div id="app-container">
         <!-- タブバー -->
         <div id="tabs-container">
@@ -17,24 +108,261 @@
         </div>
 
         <!-- エディタ本体 -->
-        <div id="editor-container"></div>
+        <div id="editor-container">
+            <div id="loading"><i class="fas fa-spinner fa-spin"></i> エディタを読み込み中...</div>
+        </div>
 
-        <!-- 下部ツールバー -->
+        <!-- 下部ツールバー (横スワイプ可能) -->
         <div id="toolbar">
             <button id="btn-open" class="tool-btn"><i class="fas fa-folder-open"></i> 開く</button>
             <button id="btn-save" class="tool-btn"><i class="fas fa-save"></i> 保存</button>
             <div class="separator"></div>
             
-            <button id="btn-search" class="tool-btn"><i class="fas fa-search"></i> 検索・置換</button>
+            <button id="btn-search" class="tool-btn"><i class="fas fa-search"></i> 検索</button>
+            <button id="btn-replace" class="tool-btn"><i class="fas fa-exchange-alt"></i> 置換</button>
+            <div class="separator"></div>
+            
             <button id="btn-rename" class="tool-btn"><i class="fas fa-pen"></i> 名前変更</button>
             <button id="btn-save-as" class="tool-btn"><i class="fas fa-file-download"></i> DL保存</button>
         </div>
     </div>
 
+    <!-- ファイル読み込み用の隠しインプット -->
     <input type="file" id="file-input" style="display: none;" multiple>
-    <div id="toast" class="toast">処理が完了しました</div>
+    
+    <!-- 通知ポップアップ -->
+    <div id="toast" class="toast">完了</div>
 
-    <!-- type="module" が必須です -->
-    <script type="module" src="app.js"></script>
+    <!-- ==========================================
+         超高性能エディタエンジン読み込み (Monaco Editor)
+         ※確実なCDNリンクを使用
+         ========================================== -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    
+    <script>
+        /* ==========================================
+           アプリケーションロジック (JS)
+           ========================================== */
+        
+        let editor;
+        let tabs = [];
+        let activeTabId = null;
+
+        // トースト通知を表示する関数
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        // ローカルストレージから前回終了時の状態を復元
+        const savedData = localStorage.getItem('mobileCodePro_V4');
+        if (savedData) {
+            try {
+                const state = JSON.parse(savedData);
+                tabs = state.tabs || [];
+                activeTabId = state.activeTabId || null;
+            } catch(e) {}
+        }
+        
+        // タブが空の場合は初期タブを作成
+        if (tabs.length === 0) {
+            addTab("index.js", "// 画面を「長押し」または「ダブルタップ」すると\n// スマホ標準の青い選択ピンやコピーメニューが出ます。\n\nfunction helloWorld() {\n  console.log('Mobile Ready!');\n}\n\n// 1000行以上書いても一切遅延しません。");
+        }
+        if (!activeTabId && tabs.length > 0) activeTabId = tabs[0].id;
+
+        // Monaco Editor の設定と起動
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            
+            // ロード中表示を消す
+            document.getElementById('loading').style.display = 'none';
+
+            // エディタの生成
+            editor = monaco.editor.create(document.getElementById('editor-container'), {
+                theme: 'vs-dark',
+                language: 'javascript',
+                automaticLayout: true,     // 画面サイズ変更時に自動リサイズ
+                wordWrap: 'on',            // スマホ画面の端でテキストを折り返す
+                minimap: { enabled: true, scale: 0.75 }, // ★ミニマップ有効化
+                lineNumbers: 'on',         // ★行数表示
+                fontSize: 14,
+                padding: { top: 15 },
+                scrollBeyondLastLine: false,
+                folding: true,
+                renderLineHighlight: 'all',
+                
+                // --- スマホの長押し・ネイティブ選択を阻害しないための重要設定 ---
+                contextmenu: true,         // 右クリック・長押しメニューを許可
+                mouseWheelZoom: true,
+                smoothScrolling: true,
+                cursorBlinking: "smooth"
+            });
+
+            // 文字が入力・変更されるたびにローカルストレージへ自動保存
+            editor.onDidChangeModelContent(() => {
+                const activeTab = tabs.find(t => t.id === activeTabId);
+                if (activeTab) {
+                    activeTab.content = editor.getValue();
+                    saveState();
+                }
+            });
+
+            renderTabs();
+            loadTabContent(activeTabId);
+        });
+
+        /* ==========================================
+           タブ機能・ファイル管理ロジック
+           ========================================== */
+
+        // 新しいタブ（ファイル）を追加
+        function addTab(name, content = "") {
+            const newId = "tab_" + Date.now();
+            tabs.push({ id: newId, name: name, content: content });
+            activeTabId = newId;
+            saveState();
+            if (editor) {
+                renderTabs();
+                loadTabContent(newId);
+            }
+        }
+
+        // 指定したタブのデータをエディタに表示
+        function loadTabContent(id) {
+            const tab = tabs.find(t => t.id === id);
+            if (tab && editor) {
+                // 拡張子からプログラミング言語を判別して色付けを変更
+                const ext = tab.name.split('.').pop().toLowerCase();
+                const langMap = { 'js':'javascript', 'html':'html', 'css':'css', 'json':'json', 'py':'python', 'ts':'typescript' };
+                const lang = langMap[ext] || 'plaintext';
+                
+                monaco.editor.setModelLanguage(editor.getModel(), lang);
+                
+                // 内容が違う場合のみセット（カーソル位置リセット防止）
+                if (editor.getValue() !== tab.content) {
+                    editor.setValue(tab.content);
+                }
+            }
+        }
+
+        // 画面上部にタブを描画
+        function renderTabs() {
+            const tabsContainer = document.getElementById('tabs');
+            tabsContainer.innerHTML = '';
+            
+            tabs.forEach(tab => {
+                const tabEl = document.createElement('div');
+                tabEl.className = `tab ${tab.id === activeTabId ? 'active' : ''}`;
+                tabEl.innerHTML = `
+                    <span class="tab-name">${tab.name}</span>
+                    <span class="tab-close"><i class="fas fa-times"></i></span>
+                `;
+                
+                // タブの名前部分をタップで切り替え
+                tabEl.querySelector('.tab-name').onclick = () => {
+                    activeTabId = tab.id;
+                    renderTabs();
+                    loadTabContent(activeTabId);
+                    saveState();
+                };
+
+                // 「×」ボタンでタブを閉じる
+                tabEl.querySelector('.tab-close').onclick = (e) => {
+                    e.stopPropagation();
+                    tabs = tabs.filter(t => t.id !== tab.id);
+                    
+                    // タブがゼロになったら空のファイルを作る
+                    if (tabs.length === 0) {
+                        addTab("untitled.txt", "");
+                    } else if (activeTabId === tab.id) {
+                        // 閉じられたのが現在開いているタブなら、一番右のタブを開く
+                        activeTabId = tabs[tabs.length - 1].id;
+                    }
+                    renderTabs();
+                    loadTabContent(activeTabId);
+                    saveState();
+                };
+
+                tabsContainer.appendChild(tabEl);
+            });
+        }
+
+        // ローカルストレージへの保存（アプリを閉じても消えない）
+        function saveState() {
+            localStorage.setItem('mobileCodePro_V4', JSON.stringify({ tabs, activeTabId }));
+        }
+
+        /* ==========================================
+           ツールバーのボタン機能
+           ========================================== */
+
+        // ＋ボタン：新規ファイル作成
+        document.getElementById('btn-new-tab').onclick = () => {
+            const name = prompt("新しいファイル名を入力してください", "newfile.js");
+            if (name) addTab(name);
+        };
+
+        // 開く：スマホ内からファイルを選択して読み込む
+        document.getElementById('btn-open').onclick = () => {
+            document.getElementById('file-input').click();
+        };
+        
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const files = e.target.files;
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const reader = new FileReader();
+                reader.onload = (event) => addTab(file.name, event.target.result);
+                reader.readAsText(file);
+            }
+            e.target.value = ''; // 次回も同じファイルを開けるようにリセット
+        });
+
+        // 保存：手動でローカルに保存（自動保存もされています）
+        document.getElementById('btn-save').onclick = () => {
+            saveState();
+            showToast("ブラウザ内に保存しました");
+        };
+
+        // 検索：エディタ上部に検索バーを出す
+        document.getElementById('btn-search').onclick = () => {
+            if (editor) editor.getAction('actions.find').run();
+        };
+
+        // 置換：エディタ上部に一括置換バーを出す
+        document.getElementById('btn-replace').onclick = () => {
+            if (editor) editor.getAction('editor.action.startFindReplaceAction').run();
+        };
+
+        // 名前変更：現在開いているタブの名前を変更
+        document.getElementById('btn-rename').onclick = () => {
+            const activeTab = tabs.find(t => t.id === activeTabId);
+            const newName = prompt("新しいファイル名", activeTab.name);
+            if (newName && newName.trim() !== "") {
+                activeTab.name = newName;
+                renderTabs();
+                loadTabContent(activeTabId); // 拡張子が変わったら色付けも更新される
+                saveState();
+            }
+        };
+
+        // DL保存：実物のテキストファイルとしてスマホ本体にダウンロード
+        document.getElementById('btn-save-as').onclick = () => {
+            const activeTab = tabs.find(t => t.id === activeTabId);
+            const blob = new Blob([activeTab.content], { type: "text/plain;charset=utf-8" });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = activeTab.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            showToast("ダウンロードしました");
+        };
+
+    </script>
 </body>
 </html>
