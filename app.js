@@ -1,11 +1,22 @@
-// PWA Service Workerの登録
+// モジュールをCDNから直接インポート (ビルド不要)
+import { basicSetup } from "https://esm.sh/codemirror";
+import { EditorView, keymap } from "https://esm.sh/@codemirror/view";
+import { EditorState } from "https://esm.sh/@codemirror/state";
+import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
+import { html } from "https://esm.sh/@codemirror/lang-html";
+import { css } from "https://esm.sh/@codemirror/lang-css";
+import { python } from "https://esm.sh/@codemirror/lang-python";
+import { search, openSearchPanel } from "https://esm.sh/@codemirror/search";
+import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
+import { minimap } from "https://esm.sh/@replit/codemirror-minimap";
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
-let editor;
+let view; // エディタのビューインスタンス
 let tabs = [];
 let activeTabId = null;
 
-// トースト通知関数
+// 通知関数
 function showToast(message) {
     const toast = document.getElementById('toast');
     toast.textContent = message;
@@ -13,62 +24,72 @@ function showToast(message) {
     setTimeout(() => toast.classList.remove('show'), 2000);
 }
 
-// データの復元
-const savedData = localStorage.getItem('mobileCodeProState');
+// 拡張子から言語を判定
+function getLanguage(filename) {
+    const ext = filename.split('.').pop();
+    switch(ext) {
+        case 'js': case 'json': return javascript();
+        case 'html': return html();
+        case 'css': return css();
+        case 'py': return python();
+        default: return []; // その他はプレーンテキスト
+    }
+}
+
+// エディタの状態(State)を作成する関数
+function createEditorState(content, filename) {
+    return EditorState.create({
+        doc: content,
+        extensions: [
+            basicSetup,
+            oneDark,                  // ダークテーマ
+            EditorView.lineWrapping,  // スマホ画面で折り返し
+            getLanguage(filename),    // 言語ハイライト
+            search({ top: true }),    // 検索・置換パネルを上部に
+            minimap(),                // ★ミニマップ有効化
+            // 変更があったら自動保存
+            EditorView.updateListener.of((update) => {
+                if (update.docChanged) saveToLocal();
+            })
+        ]
+    });
+}
+
+// ローカルストレージから復元
+const savedData = localStorage.getItem('mobileCodeProV3');
 if (savedData) {
     const state = JSON.parse(savedData);
     tabs = state.tabs || [];
     activeTabId = state.activeTabId || null;
 }
-if (tabs.length === 0) addTab("index.js", "// ここにコードを書いてください");
+if (tabs.length === 0) addTab("index.js", "// 長押しでスマホ標準の選択ができます\nfunction hello() {\n  console.log('Mobile Native Select!');\n}");
 if (!activeTabId && tabs.length > 0) activeTabId = tabs[0].id;
 
-// Monaco Editor 初期化
-require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
-require(['vs/editor/editor.main'], function() {
-    editor = monaco.editor.create(document.getElementById('editor-container'), {
-        theme: 'vs-dark',
-        language: 'javascript',
-        automaticLayout: true,
-        wordWrap: 'on',
-        minimap: { enabled: true, scale: 0.7 },
-        lineNumbers: 'on',
-        fontSize: 14,
-        padding: { top: 10 },
-        scrollBeyondLastLine: false,
-        folding: true,
-        renderLineHighlight: 'all',
-        contextmenu: false // モバイルでの誤爆を防ぐためネイティブメニューを無効化
-    });
-
-    editor.onDidChangeModelContent(() => {
-        const activeTab = tabs.find(t => t.id === activeTabId);
-        if (activeTab) {
-            activeTab.content = editor.getValue();
-            saveStateToLocal();
-        }
-    });
-
-    renderTabs();
-    loadTabContent(activeTabId);
+// エディタを画面にマウント
+view = new EditorView({
+    parent: document.getElementById('editor-container')
 });
 
-// タブ管理
+renderTabs();
+loadTab(activeTabId);
+
+// ---------------------------
+// タブ・ファイル管理ロジック
+// ---------------------------
 function addTab(name, content = "") {
     const newId = Date.now().toString();
     tabs.push({ id: newId, name: name, content: content });
     activeTabId = newId;
-    saveStateToLocal();
-    if (editor) { renderTabs(); loadTabContent(newId); }
+    saveToLocal();
+    renderTabs();
+    loadTab(newId);
 }
 
-function loadTabContent(id) {
+function loadTab(id) {
     const tab = tabs.find(t => t.id === id);
-    if (tab && editor) {
-        const ext = tab.name.split('.').pop();
-        const langMap = { 'js':'javascript', 'html':'html', 'css':'css', 'json':'json', 'py':'python' };
-        monaco.editor.setModelLanguage(editor.getModel(), langMap[ext] || 'plaintext');
-        if (editor.getValue() !== tab.content) editor.setValue(tab.content);
+    if (tab) {
+        // タブ切り替え時にStateを丸ごと入れ替える（超高速）
+        view.setState(createEditorState(tab.content, tab.name));
     }
 }
 
@@ -81,106 +102,69 @@ function renderTabs() {
         tabEl.innerHTML = `<span class="tab-name">${tab.name}</span><span class="tab-close"><i class="fas fa-times"></i></span>`;
         
         tabEl.querySelector('.tab-name').onclick = () => {
-            activeTabId = tab.id; renderTabs(); loadTabContent(activeTabId); saveStateToLocal();
+            activeTabId = tab.id; renderTabs(); loadTab(activeTabId);
         };
         tabEl.querySelector('.tab-close').onclick = (e) => {
             e.stopPropagation();
             tabs = tabs.filter(t => t.id !== tab.id);
             if (tabs.length === 0) addTab("untitled.txt", "");
             else if (activeTabId === tab.id) activeTabId = tabs[tabs.length - 1].id;
-            renderTabs(); loadTabContent(activeTabId); saveStateToLocal();
+            renderTabs(); loadTab(activeTabId); saveToLocal();
         };
         tabsContainer.appendChild(tabEl);
     });
 }
 
-function saveStateToLocal() {
-    localStorage.setItem('mobileCodeProState', JSON.stringify({ tabs, activeTabId }));
+function saveToLocal() {
+    // 現在のエディタのテキストを取得してタブ情報に上書き
+    if (activeTabId && view) {
+        const tab = tabs.find(t => t.id === activeTabId);
+        if (tab) tab.content = view.state.doc.toString();
+    }
+    localStorage.setItem('mobileCodeProV3', JSON.stringify({ tabs, activeTabId }));
 }
 
-// ------------------------------------
+// ---------------------------
 // UIボタンのアクション
-// ------------------------------------
+// ---------------------------
 document.getElementById('btn-new-tab').onclick = () => {
-    const name = prompt("ファイル名を入力してください", "newfile.js");
+    const name = prompt("ファイル名", "newfile.js");
     if (name) addTab(name);
 };
 
-// 【新規】ファイルを開く
-document.getElementById('btn-open').onclick = () => {
-    document.getElementById('file-input').click();
-};
+document.getElementById('btn-open').onclick = () => document.getElementById('file-input').click();
 document.getElementById('file-input').addEventListener('change', (e) => {
-    const files = e.target.files;
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+    Array.from(e.target.files).forEach(file => {
         const reader = new FileReader();
         reader.onload = (event) => addTab(file.name, event.target.result);
         reader.readAsText(file);
-    }
-    e.target.value = ''; // リセット
+    });
+    e.target.value = '';
 });
 
-// 【新規】全選択
-document.getElementById('btn-select-all').onclick = () => {
-    if (!editor) return;
-    editor.setSelection(editor.getModel().getFullModelRange());
-    editor.focus();
-    showToast("全選択しました");
+document.getElementById('btn-save').onclick = () => {
+    saveToLocal(); showToast("保存しました");
 };
 
-// 【新規】コピー
-document.getElementById('btn-copy').onclick = async () => {
-    if (!editor) return;
-    const text = editor.getModel().getValueInRange(editor.getSelection());
-    if (text) {
-        try {
-            await navigator.clipboard.writeText(text);
-            showToast("コピーしました");
-        } catch (err) { alert("コピー失敗: " + err); }
-    }
+// ★検索・置換パネルを呼び出す
+document.getElementById('btn-search').onclick = () => {
+    openSearchPanel(view);
 };
 
-// 【新規】カット (切り取り)
-document.getElementById('btn-cut').onclick = async () => {
-    if (!editor) return;
-    const selection = editor.getSelection();
-    const text = editor.getModel().getValueInRange(selection);
-    if (text) {
-        try {
-            await navigator.clipboard.writeText(text);
-            editor.executeEdits("", [{ range: selection, text: null }]);
-            showToast("切り取りました");
-        } catch (err) { alert("カット失敗: " + err); }
-    }
-};
-
-// 【新規】ペースト
-document.getElementById('btn-paste').onclick = async () => {
-    if (!editor) return;
-    try {
-        const text = await navigator.clipboard.readText();
-        const selection = editor.getSelection();
-        editor.executeEdits("", [{ range: selection, text: text, forceMoveMarkers: true }]);
-        editor.focus();
-        showToast("ペーストしました");
-    } catch (err) { alert("ペースト権限を許可してください"); }
-};
-
-// その他
-document.getElementById('btn-search').onclick = () => editor.getAction('actions.find').run();
-document.getElementById('btn-replace').onclick = () => editor.getAction('editor.action.startFindReplaceAction').run();
-document.getElementById('btn-save').onclick = () => { saveStateToLocal(); showToast("保存しました"); };
 document.getElementById('btn-rename').onclick = () => {
-    const activeTab = tabs.find(t => t.id === activeTabId);
-    const newName = prompt("新しいファイル名", activeTab.name);
-    if (newName) { activeTab.name = newName; renderTabs(); loadTabContent(activeTabId); saveStateToLocal(); }
+    const tab = tabs.find(t => t.id === activeTabId);
+    const newName = prompt("新しいファイル名", tab.name);
+    if (newName) {
+        tab.name = newName;
+        renderTabs(); loadTab(activeTabId); saveToLocal();
+    }
 };
+
 document.getElementById('btn-save-as').onclick = () => {
-    const activeTab = tabs.find(t => t.id === activeTabId);
+    const tab = tabs.find(t => t.id === activeTabId);
     const a = document.createElement("a");
-    a.href = window.URL.createObjectURL(new Blob([activeTab.content], { type: "text/plain" }));
-    a.download = activeTab.name;
+    a.href = window.URL.createObjectURL(new Blob([tab.content], { type: "text/plain" }));
+    a.download = tab.name;
     a.click();
-    showToast("ダウンロードを開始しました");
+    showToast("ダウンロードしました");
 };
