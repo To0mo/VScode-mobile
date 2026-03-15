@@ -1,4 +1,4 @@
-const CACHE_NAME = 'code-pro-v3';
+const CACHE_NAME = 'code-pro-mirror';
 const ASSETS = [
     './',
     './index.html',
