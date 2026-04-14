@@ -14,7 +14,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/monokai.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/dialog/dialog.min.css">
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,21 +33,30 @@
         #main-area { display: flex; flex: 1; overflow: hidden; position: relative; width: 100%; }
         #editor-wrapper { flex: 1; height: 100%; overflow: hidden; }
         .CodeMirror { height: 100%; font-family: 'SF Mono', Consolas, monospace; font-size: 14px; background: #272822; }
-        .CodeMirror-dialog { background: rgba(30,30,30,0.95) !important; color: white !important; padding: 10px !important; border-radius: 0 0 8px 8px; }
-        .CodeMirror-dialog input { background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 4px; }
 
-        /* ミニマップ (高度化) */
+        /* カスタム検索＆置換パネル */
+        #search-panel {
+            position: absolute; top: 0; left: 0; width: 100%; background: rgba(30, 30, 30, 0.95);
+            border-bottom: 1px solid #000; z-index: 50; display: none; flex-direction: column; padding: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+        }
+        .s-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .s-row:last-child { margin-bottom: 0; }
+        .s-input { flex: 1; background: #111; color: #fff; border: 1px solid #555; padding: 8px; border-radius: 4px; font-size: 14px; outline: none; }
+        .s-input:focus { border-color: #a6e22e; }
+        .s-btn { background: #444; color: #eee; border: none; padding: 8px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; white-space: nowrap; font-weight: bold; }
+        .s-btn:active { background: #666; }
+        .s-btn-icon { padding: 8px 12px; }
+        .s-toggle { background: #333; color: #aaa; border: 1px solid #555; padding: 6px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; }
+        .s-toggle.active { background: #a6e22e; color: #222; border-color: #a6e22e; }
+
+        /* ミニマップ */
         #minimap-track {
             width: 65px; background: #1e1e1e; border-left: 1px solid #333;
             position: relative; overflow: hidden; touch-action: none; cursor: pointer; flex-shrink: 0;
         }
-        #minimap-content {
-            position: absolute; width: 100%; top: 0; left: 0;
-            will-change: transform; /* GPUアクセラレーションで爆速スクロール */
-        }
-        #minimap-canvas { 
-            width: 100%; display: block; 
-        }
+        #minimap-content { position: absolute; width: 100%; top: 0; left: 0; will-change: transform; }
+        #minimap-canvas { width: 100%; display: block; }
         #minimap-slider {
             position: absolute; width: 100%; background: rgba(255, 255, 255, 0.12);
             left: 0; pointer-events: none; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 2px; box-shadow: 0 0 5px rgba(0,0,0,0.5);
@@ -85,7 +93,25 @@
             <div id="editor-wrapper">
                 <textarea id="code-editor"></textarea>
             </div>
-            <!-- 高解像度＆スクロール対応ミニマップ -->
+            
+            <!-- カスタム検索＆置換パネル -->
+            <div id="search-panel">
+                <div class="s-row">
+                    <input type="text" id="s-input" class="s-input" placeholder="検索...">
+                    <button id="t-case" class="s-toggle" title="大文字小文字を区別">Aa</button>
+                    <button id="t-word" class="s-toggle" title="単語単位で検索">\b</button>
+                    <button id="s-prev" class="s-btn s-btn-icon"><i class="fas fa-arrow-up"></i></button>
+                    <button id="s-next" class="s-btn s-btn-icon"><i class="fas fa-arrow-down"></i></button>
+                    <button id="s-close" class="s-btn s-btn-icon" style="background:#b22222;"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="s-row" id="r-row" style="display:none;">
+                    <input type="text" id="r-input" class="s-input" placeholder="置換...">
+                    <button id="r-btn" class="s-btn">置換</button>
+                    <button id="r-all-btn" class="s-btn">全置換</button>
+                </div>
+            </div>
+
+            <!-- ミニマップ -->
             <div id="minimap-track">
                 <div id="minimap-content">
                     <canvas id="minimap-canvas"></canvas>
@@ -104,44 +130,33 @@
             <button id="btn-rename" class="tool-btn"><i class="fas fa-pen"></i> 名前変更</button>
             <button id="btn-save-as" class="tool-btn"><i class="fas fa-file-download"></i> DL保存</button>
             <div class="separator"></div>
-            <!-- 新規追加ボタン -->
             <button id="btn-format" class="tool-btn"><i class="fas fa-magic"></i> 整形</button>
             <button id="btn-remove-comments" class="tool-btn"><i class="fas fa-comment-slash"></i> コメ削除</button>
+            <button id="btn-remove-empty" class="tool-btn"><i class="fas fa-align-justify"></i> 空行削除</button>
         </div>
     </div>
 
     <input type="file" id="file-input" style="display: none;" multiple>
     <div id="toast" class="toast">完了</div>
 
-    <!-- ライブラリ群 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/search/searchcursor.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/search/search.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/dialog/dialog.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
 
-    <!-- Beautifier (コード整形用) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautifier.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautify-css.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautify-html.min.js"></script>
-
     <script>
         const ui = {
-            tabs: document.getElementById('tabs'),
-            toast: document.getElementById('toast'),
+            tabs: document.getElementById('tabs'), toast: document.getElementById('toast'),
             fileInput: document.getElementById('file-input'),
-            track: document.getElementById('minimap-track'),
-            content: document.getElementById('minimap-content'),
-            canvas: document.getElementById('minimap-canvas'),
-            slider: document.getElementById('minimap-slider'),
+            track: document.getElementById('minimap-track'), content: document.getElementById('minimap-content'),
+            canvas: document.getElementById('minimap-canvas'), slider: document.getElementById('minimap-slider'),
+            sPanel: document.getElementById('search-panel'), rRow: document.getElementById('r-row'),
+            sInput: document.getElementById('s-input'), rInput: document.getElementById('r-input')
         };
         const ctx = ui.canvas.getContext('2d', { alpha: false });
 
-        let editor;
-        let tabs = [];
-        let activeTabId = null;
+        let editor; let tabs = []; let activeTabId = null;
 
         function showToast(msg) {
             ui.toast.textContent = msg; 
@@ -150,16 +165,15 @@
         }
 
         window.onload = function() {
-            const savedData = localStorage.getItem('mobileCodePro_V7');
+            const savedData = localStorage.getItem('mobileCodePro_V8');
             if (savedData) {
                 try {
                     const state = JSON.parse(savedData);
-                    tabs = state.tabs || [];
-                    activeTabId = state.activeTabId || null;
+                    tabs = state.tabs || []; activeTabId = state.activeTabId || null;
                 } catch(e) {}
             }
             if (tabs.length === 0) {
-                addTab("index.js", "// 整形＆コメント削除機能追加！\n// ミニマップも潰れず高解像度に。\n\nfunction start() {\n  console.log('Ultra Fast Minimap');\n}");
+                addTab("index.js", "// 高性能検索パネル追加！\n// 整形・空行削除も完璧です。\n\nfunction start() {\n  console.log('Mobile Code Pro V8');\n}");
             }
             if (!activeTabId) activeTabId = tabs[0].id;
 
@@ -173,23 +187,18 @@
                 const tab = tabs.find(t => t.id === activeTabId);
                 if (tab) { tab.content = editor.getValue(); saveState(); }
                 clearTimeout(minimapTimeout);
-                minimapTimeout = setTimeout(drawMinimap, 400); // 描画は少し待ってから実行
+                minimapTimeout = setTimeout(drawMinimap, 400);
             });
 
             let isScrolling = false;
             editor.on('scroll', () => {
                 if (!isScrolling) {
-                    window.requestAnimationFrame(() => {
-                        updateMinimapSlider(); // スクロール時は再描画せず位置だけズラす（超軽量）
-                        isScrolling = false;
-                    });
+                    window.requestAnimationFrame(() => { updateMinimapSlider(); isScrolling = false; });
                     isScrolling = true;
                 }
             });
 
-            renderTabs();
-            loadTabContent(activeTabId);
-            setTimeout(drawMinimap, 100);
+            renderTabs(); loadTabContent(activeTabId); setTimeout(drawMinimap, 100);
         };
 
         // --- タブ管理 ---
@@ -205,8 +214,7 @@
             if (tab && editor) {
                 const ext = tab.name.split('.').pop().toLowerCase();
                 let mode = "javascript";
-                if(ext === 'html') mode = "xml";
-                if(ext === 'css') mode = "css";
+                if(ext === 'html') mode = "xml"; if(ext === 'css') mode = "css";
                 editor.setOption("mode", mode);
                 if (editor.getValue() !== tab.content) editor.setValue(tab.content);
                 setTimeout(drawMinimap, 50);
@@ -220,11 +228,9 @@
                 el.className = `tab ${tab.id === activeTabId ? 'active' : ''}`;
                 const icon = tab.fileHandle ? '<i class="fas fa-file-code" style="color:#66d9ef; margin-right:5px;"></i>' : '';
                 el.innerHTML = `${icon}<span class="tab-name">${tab.name}</span><span class="tab-close"><i class="fas fa-times"></i></span>`;
-                
                 el.querySelector('.tab-name').onclick = () => { activeTabId = tab.id; renderTabs(); loadTabContent(activeTabId); saveState(); };
                 el.querySelector('.tab-close').onclick = (e) => {
-                    e.stopPropagation();
-                    tabs = tabs.filter(t => t.id !== tab.id);
+                    e.stopPropagation(); tabs = tabs.filter(t => t.id !== tab.id);
                     if (tabs.length === 0) addTab("untitled.txt", "");
                     else if (activeTabId === tab.id) activeTabId = tabs[tabs.length - 1].id;
                     renderTabs(); loadTabContent(activeTabId); saveState();
@@ -235,18 +241,16 @@
 
         function saveState() {
             const safeTabs = tabs.map(t => ({ id: t.id, name: t.name, content: t.content }));
-            localStorage.setItem('mobileCodePro_V7', JSON.stringify({ tabs: safeTabs, activeTabId }));
+            localStorage.setItem('mobileCodePro_V8', JSON.stringify({ tabs: safeTabs, activeTabId }));
         }
 
-        // --- ファイル操作 ---
+        // --- ツールバーアクション ---
         document.getElementById('btn-open').onclick = async () => {
             if (window.showOpenFilePicker) {
                 try {
-                    const [fileHandle] = await window.showOpenFilePicker();
-                    const file = await fileHandle.getFile();
-                    const content = await file.text();
-                    addTab(file.name, content, fileHandle);
-                    showToast("ファイルを開きました");
+                    const [fh] = await window.showOpenFilePicker();
+                    const f = await fh.getFile(); const c = await f.text();
+                    addTab(f.name, c, fh); showToast("ファイルを開きました");
                 } catch(e) {}
             } else { ui.fileInput.click(); }
         };
@@ -254,29 +258,22 @@
         ui.fileInput.addEventListener('change', (e) => {
             Array.from(e.target.files).forEach(f => {
                 const r = new FileReader(); r.onload = (ev) => addTab(f.name, ev.target.result); r.readAsText(f);
-            });
-            e.target.value = '';
+            }); e.target.value = '';
         });
 
         document.getElementById('btn-save').onclick = async () => {
-            const tab = tabs.find(x => x.id === activeTabId);
-            saveState();
+            const tab = tabs.find(x => x.id === activeTabId); saveState();
             if (tab.fileHandle && window.showOpenFilePicker) {
                 try {
-                    const writable = await tab.fileHandle.createWritable();
-                    await writable.write(tab.content);
-                    await writable.close();
-                    showToast("本体に上書き保存しました！");
+                    const w = await tab.fileHandle.createWritable();
+                    await w.write(tab.content); await w.close(); showToast("本体に上書き保存しました！");
                 } catch(e) { showToast("上書き失敗"); }
             } else { showToast("ブラウザ内に保存しました"); }
         };
 
         document.getElementById('btn-new-tab').onclick = () => { const n = prompt("ファイル名", "new.js"); if(n) addTab(n); };
-        document.getElementById('btn-search').onclick = () => editor.execCommand('find');
-        document.getElementById('btn-replace').onclick = () => editor.execCommand('replace');
         document.getElementById('btn-rename').onclick = () => {
-            const t = tabs.find(x => x.id === activeTabId);
-            const n = prompt("新しいファイル名", t.name);
+            const t = tabs.find(x => x.id === activeTabId); const n = prompt("新しいファイル名", t.name);
             if(n) { t.name = n; renderTabs(); loadTabContent(activeTabId); saveState(); }
         };
         document.getElementById('btn-save-as').onclick = () => {
@@ -286,45 +283,122 @@
             a.download = t.name; a.click(); showToast("ダウンロードしました");
         };
 
-        // --- Beautify (コード整形) ---
+        // --- 整形 (CodeMirror標準のスマートインデントを利用・高速かつ確実) ---
         document.getElementById('btn-format').onclick = () => {
-            const mode = editor.getOption("mode");
-            let val = editor.getValue();
-            let formatted = val;
-            try {
-                if (mode === "javascript" && window.js_beautify) formatted = js_beautify(val, { indent_size: 2, space_in_empty_paren: true });
-                else if (mode === "xml" && window.html_beautify) formatted = html_beautify(val, { indent_size: 2 });
-                else if (mode === "css" && window.css_beautify) formatted = css_beautify(val, { indent_size: 2 });
-                
-                if (formatted !== val) { editor.setValue(formatted); showToast("コードを整形しました"); }
-                else { showToast("既に整形されています"); }
-            } catch(e) { showToast("整形に失敗しました"); }
+            editor.operation(() => {
+                const lines = editor.lineCount();
+                for (let i = 0; i < lines; i++) editor.indentLine(i, "smart");
+            });
+            showToast("インデントを整形しました");
         };
 
-        // --- コメント削除 ---
+        // --- コメント削除 (行ごと消す対応) ---
         document.getElementById('btn-remove-comments').onclick = () => {
             const mode = editor.getOption("mode");
-            let val = editor.getValue();
-            let newVal = val;
+            let val = editor.getValue(); let newVal = val;
             
             if (mode === "javascript") {
-                // 文字列の中の // 等は保護しつつコメントを削除
-                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|\/\*[\s\S]*?\*\/|\/\/.*/g, (match, quote) => quote ? match : "");
+                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*\/\*[\s\S]*?\*\/\r?\n?|^[ \t]*\/\/.*\r?\n?|\/\*[\s\S]*?\*\/|\/\/.*/gm, (m, q) => q ? m : "");
             } else if (mode === "xml") {
-                newVal = val.replace(/<!--[\s\S]*?-->/g, "");
+                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*<!--[\s\S]*?-->\r?\n?|<!--[\s\S]*?-->/gm, (m, q) => q ? m : "");
             } else if (mode === "css") {
-                newVal = val.replace(/\/\*[\s\S]*?\*\//g, "");
+                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*\/\*[\s\S]*?\*\/\r?\n?|\/\*[\s\S]*?\*\//gm, (m, q) => q ? m : "");
             }
             
             if (newVal !== val) { editor.setValue(newVal); showToast("コメントを削除しました"); }
             else { showToast("コメントは見つかりませんでした"); }
         };
 
+        // --- 空行削除 ---
+        document.getElementById('btn-remove-empty').onclick = () => {
+            let val = editor.getValue();
+            let newVal = val.replace(/^[ \t]*$\r?\n/gm, ""); // 空白だけの行を改行ごと削除
+            if (newVal !== val) { editor.setValue(newVal); showToast("空行を削除しました"); }
+            else { showToast("空行はありません"); }
+        };
+
         // ==========================================
-        // ★ ミニマップ描画エンジン (超高解像度 ＆ スクロール対応)
+        // ★ カスタム検索＆置換パネルの実装
         // ==========================================
-        const MINIMAP_LINE_HEIGHT = 2.5; // 絶対に潰れない固定の高さ
-        const MINIMAP_CHAR_WIDTH = 1.2;
+        let searchCursor = null;
+        let lastQueryText = null;
+        let matchCase = false;
+        let wholeWord = false;
+
+        const btnSearch = document.getElementById('btn-search');
+        const btnReplace = document.getElementById('btn-replace');
+        const tCase = document.getElementById('t-case');
+        const tWord = document.getElementById('t-word');
+
+        btnSearch.onclick = () => { ui.sPanel.style.display = 'flex'; ui.rRow.style.display = 'none'; ui.sInput.focus(); };
+        btnReplace.onclick = () => { ui.sPanel.style.display = 'flex'; ui.rRow.style.display = 'flex'; ui.sInput.focus(); };
+        document.getElementById('s-close').onclick = () => { ui.sPanel.style.display = 'none'; searchCursor = null; editor.focus(); };
+
+        tCase.onclick = () => { matchCase = !matchCase; tCase.classList.toggle('active', matchCase); lastQueryText = null; };
+        tWord.onclick = () => { wholeWord = !wholeWord; tWord.classList.toggle('active', wholeWord); lastQueryText = null; };
+
+        function doSearch(reverse) {
+            const q = ui.sInput.value;
+            if (!q) return;
+
+            if (lastQueryText !== q) searchCursor = null;
+
+            let query = q;
+            let escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+            if (wholeWord) {
+                query = new RegExp('\\b' + escaped + '\\b', matchCase ? '' : 'i');
+            } else if (!matchCase) {
+                query = new RegExp(escaped, 'i');
+            }
+
+            if (!searchCursor) {
+                searchCursor = editor.getSearchCursor(query, editor.getCursor());
+                lastQueryText = q;
+            }
+
+            let found = reverse ? searchCursor.findPrevious() : searchCursor.findNext();
+            if (!found) { // 一番下/上まで行ったらループする
+                searchCursor = editor.getSearchCursor(query, reverse ? CodeMirror.Pos(editor.lastLine()) : CodeMirror.Pos(editor.firstLine(), 0));
+                found = reverse ? searchCursor.findPrevious() : searchCursor.findNext();
+            }
+
+            if (found) {
+                editor.setSelection(searchCursor.from(), searchCursor.to());
+                editor.scrollIntoView({from: searchCursor.from(), to: searchCursor.to()}, 30);
+            } else { showToast("見つかりません"); }
+        }
+
+        document.getElementById('s-prev').onclick = () => doSearch(true);
+        document.getElementById('s-next').onclick = () => doSearch(false);
+        ui.sInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(e.shiftKey); };
+
+        document.getElementById('r-btn').onclick = () => {
+            const r = ui.rInput.value;
+            if (searchCursor && editor.somethingSelected()) { searchCursor.replace(r); }
+            doSearch(false);
+        };
+
+        document.getElementById('r-all-btn').onclick = () => {
+            const q = ui.sInput.value; const r = ui.rInput.value;
+            if (!q) return;
+            
+            let query = q; let escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+            if (wholeWord) query = new RegExp('\\b' + escaped + '\\b', matchCase ? 'g' : 'gi');
+            else query = new RegExp(escaped, matchCase ? 'g' : 'gi');
+
+            editor.operation(() => {
+                let cursor = editor.getSearchCursor(query);
+                let count = 0;
+                while (cursor.findNext()) { cursor.replace(r); count++; }
+                showToast(`${count}件置換しました`);
+            });
+            searchCursor = null; // リセット
+        };
+
+        // ==========================================
+        // ★ ミニマップ描画エンジン
+        // ==========================================
+        const MINIMAP_LINE_HEIGHT = 2.5; const MINIMAP_CHAR_WIDTH = 1.2;
 
         function drawMinimap() {
             if (!editor) return;
@@ -332,65 +406,42 @@
             const totalLines = Math.max(lines.length, 1);
             
             const cw = ui.track.clientWidth;
-            // 画面高さを下回らないように最低限の高さを確保
             const ch = Math.max(totalLines * MINIMAP_LINE_HEIGHT, ui.track.clientHeight);
-            
-            // Retina等の高解像度ディスプレイに合わせて鮮明に描画
             const dpr = window.devicePixelRatio || 1;
-            ui.canvas.width = cw * dpr;
-            ui.canvas.height = ch * dpr;
-            ui.canvas.style.width = cw + 'px';
-            ui.canvas.style.height = ch + 'px';
             
-            ctx.scale(dpr, dpr);
-            ctx.fillStyle = "#1e1e1e";
-            ctx.fillRect(0, 0, cw, ch);
+            ui.canvas.width = cw * dpr; ui.canvas.height = ch * dpr;
+            ui.canvas.style.width = cw + 'px'; ui.canvas.style.height = ch + 'px';
             
-            // Path2DでGPUバッチ描画（何万行でも一瞬で完了）
-            const pNormal = new Path2D();
-            const pKeyword = new Path2D();
-            const pComment = new Path2D();
-            const pString = new Path2D();
+            ctx.scale(dpr, dpr); ctx.fillStyle = "#1e1e1e"; ctx.fillRect(0, 0, cw, ch);
             
-            // 簡易ハイライト用正規表現
+            const pNormal = new Path2D(); const pKeyword = new Path2D();
+            const pComment = new Path2D(); const pString = new Path2D();
+            
             const rxKeyword = /^(var|let|const|function|class|if|for|while|return|import|export|switch|case|default|break|continue|new)\b/;
             const rxComment = /^\/\/|^\/\*|^<!--/;
             
             for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                if (line.length === 0) continue;
+                const line = lines[i]; if (line.length === 0) continue;
+                const indent = line.search(/\S|$/); if (indent === line.length) continue; 
                 
-                const indent = line.search(/\S|$/);
-                if (indent === line.length) continue; 
-                
-                const text = line.trim();
-                const y = i * MINIMAP_LINE_HEIGHT;
-                const x = indent * MINIMAP_CHAR_WIDTH;
-                
-                // 行の先頭で色を判定
+                const text = line.trim(); const y = i * MINIMAP_LINE_HEIGHT; const x = indent * MINIMAP_CHAR_WIDTH;
                 let target = pNormal;
                 if (rxComment.test(text)) target = pComment;
                 else if (rxKeyword.test(text)) target = pKeyword;
                 else if (text.startsWith("'") || text.startsWith('"') || text.startsWith('`')) target = pString;
                 
-                // 単語ごとに分割して描画（本物っぽく見せる）
-                const words = text.split(/(\s+)/);
-                let cx = x;
+                const words = text.split(/(\s+)/); let cx = x;
                 for (const w of words) {
                     const wLen = w.length;
-                    if (w.trim().length > 0) {
-                        target.rect(cx, y, wLen * MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT * 0.7);
-                    }
-                    cx += wLen * MINIMAP_CHAR_WIDTH;
-                    if (cx > cw) break; // はみ出し防止
+                    if (w.trim().length > 0) target.rect(cx, y, wLen * MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT * 0.7);
+                    cx += wLen * MINIMAP_CHAR_WIDTH; if (cx > cw) break;
                 }
             }
             
-            // 一括で塗りつぶし
-            ctx.fillStyle = "#a6e22e"; ctx.fill(pComment);  // 緑
-            ctx.fillStyle = "#f92672"; ctx.fill(pKeyword);  // ピンク
-            ctx.fillStyle = "#e6db74"; ctx.fill(pString);   // 黄色
-            ctx.fillStyle = "rgba(220, 220, 220, 0.7)"; ctx.fill(pNormal); // 白グレー
+            ctx.fillStyle = "#a6e22e"; ctx.fill(pComment);  
+            ctx.fillStyle = "#f92672"; ctx.fill(pKeyword);  
+            ctx.fillStyle = "#e6db74"; ctx.fill(pString);   
+            ctx.fillStyle = "rgba(220, 220, 220, 0.7)"; ctx.fill(pNormal); 
             
             updateMinimapSlider();
         }
@@ -407,33 +458,22 @@
             const sliderH = (info.clientHeight / info.height) * mapHeight;
             const sliderTop = (info.top / info.height) * mapHeight;
             
-            ui.slider.style.height = `${sliderH}px`;
-            ui.slider.style.top = `${sliderTop}px`;
+            ui.slider.style.height = `${sliderH}px`; ui.slider.style.top = `${sliderTop}px`;
             
-            // ミニマップ自体のスクロール (transformで超軽量移動)
             let mapScrollY = 0;
-            if (mapHeight > trackH) {
-                mapScrollY = scrollRatio * (mapHeight - trackH);
-            }
+            if (mapHeight > trackH) mapScrollY = scrollRatio * (mapHeight - trackH);
             ui.content.style.transform = `translateY(-${mapScrollY}px)`;
         }
 
-        // --- 爆速ドラッグスクロール ---
         let isDraggingMinimap = false;
-
         function handleMinimapDrag(e) {
             e.preventDefault();
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             const rect = ui.track.getBoundingClientRect();
-            
-            let trackY = clientY - rect.top;
-            trackY = Math.max(0, Math.min(trackY, rect.height));
-            
-            // トラック内でのタップ割合をそのままエディタのスクロール割合にする
+            let trackY = Math.max(0, Math.min(clientY - rect.top, rect.height));
             const ratio = trackY / rect.height;
             const info = editor.getScrollInfo();
             const maxScrollTop = Math.max(1, info.height - info.clientHeight);
-            
             editor.scrollTo(0, ratio * maxScrollTop);
         }
 
