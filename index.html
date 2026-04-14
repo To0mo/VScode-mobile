@@ -37,15 +37,22 @@
         .CodeMirror-dialog { background: rgba(30,30,30,0.95) !important; color: white !important; padding: 10px !important; border-radius: 0 0 8px 8px; }
         .CodeMirror-dialog input { background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 4px; }
 
-        /* ミニマップ (幅を65pxに拡大) */
+        /* ミニマップ (高度化) */
         #minimap-track {
             width: 65px; background: #1e1e1e; border-left: 1px solid #333;
             position: relative; overflow: hidden; touch-action: none; cursor: pointer; flex-shrink: 0;
         }
-        #minimap-canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        #minimap-content {
+            position: absolute; width: 100%; top: 0; left: 0;
+            will-change: transform; /* GPUアクセラレーションで爆速スクロール */
+        }
+        #minimap-canvas { 
+            width: 100%; display: block; 
+        }
         #minimap-slider {
             position: absolute; width: 100%; background: rgba(255, 255, 255, 0.12);
-            top: 0; left: 0; pointer-events: none; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 2px; box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            left: 0; pointer-events: none; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 2px; box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            will-change: top, height;
         }
 
         /* ツールバー */
@@ -54,7 +61,7 @@
         }
         #toolbar::-webkit-scrollbar { display: none; }
         .tool-btn {
-            flex: 0 0 auto; background: none; border: none; color: #ccc; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; width: 62px; height: 100%; border-radius: 6px; cursor: pointer;
+            flex: 0 0 auto; background: none; border: none; color: #ccc; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; width: 62px; height: 100%; border-radius: 6px; cursor: pointer; white-space: nowrap;
         }
         .tool-btn:active { background: #333; color: #a6e22e; }
         .tool-btn i { font-size: 18px; margin-bottom: 4px; }
@@ -78,16 +85,17 @@
             <div id="editor-wrapper">
                 <textarea id="code-editor"></textarea>
             </div>
-            <!-- ミニマップ -->
+            <!-- 高解像度＆スクロール対応ミニマップ -->
             <div id="minimap-track">
-                <canvas id="minimap-canvas"></canvas>
-                <div id="minimap-slider"></div>
+                <div id="minimap-content">
+                    <canvas id="minimap-canvas"></canvas>
+                    <div id="minimap-slider"></div>
+                </div>
             </div>
         </div>
 
         <div id="toolbar">
             <button id="btn-open" class="tool-btn"><i class="fas fa-folder-open"></i> 開く</button>
-            <!-- 上書き保存ボタン -->
             <button id="btn-save" class="tool-btn"><i class="fas fa-save"></i> 上書保存</button>
             <div class="separator"></div>
             <button id="btn-search" class="tool-btn"><i class="fas fa-search"></i> 検索</button>
@@ -95,13 +103,17 @@
             <div class="separator"></div>
             <button id="btn-rename" class="tool-btn"><i class="fas fa-pen"></i> 名前変更</button>
             <button id="btn-save-as" class="tool-btn"><i class="fas fa-file-download"></i> DL保存</button>
+            <div class="separator"></div>
+            <!-- 新規追加ボタン -->
+            <button id="btn-format" class="tool-btn"><i class="fas fa-magic"></i> 整形</button>
+            <button id="btn-remove-comments" class="tool-btn"><i class="fas fa-comment-slash"></i> コメ削除</button>
         </div>
     </div>
 
-    <!-- 非対応ブラウザ用フォールバック -->
     <input type="file" id="file-input" style="display: none;" multiple>
     <div id="toast" class="toast">完了</div>
 
+    <!-- ライブラリ群 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/search/searchcursor.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/search/search.min.js"></script>
@@ -110,17 +122,22 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
 
+    <!-- Beautifier (コード整形用) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautifier.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautify-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautify-html.min.js"></script>
+
     <script>
-        // DOM要素のキャッシュ (軽量化)
         const ui = {
             tabs: document.getElementById('tabs'),
             toast: document.getElementById('toast'),
             fileInput: document.getElementById('file-input'),
-            canvas: document.getElementById('minimap-canvas'),
             track: document.getElementById('minimap-track'),
+            content: document.getElementById('minimap-content'),
+            canvas: document.getElementById('minimap-canvas'),
             slider: document.getElementById('minimap-slider'),
         };
-        const ctx = ui.canvas.getContext('2d', { alpha: false }); // alpha:falseで描画負荷を下げる
+        const ctx = ui.canvas.getContext('2d', { alpha: false });
 
         let editor;
         let tabs = [];
@@ -133,46 +150,37 @@
         }
 
         window.onload = function() {
-            const savedData = localStorage.getItem('mobileCodePro_V6');
+            const savedData = localStorage.getItem('mobileCodePro_V7');
             if (savedData) {
                 try {
                     const state = JSON.parse(savedData);
-                    // ファイルハンドルはJSON保存できないため除外される
                     tabs = state.tabs || [];
                     activeTabId = state.activeTabId || null;
                 } catch(e) {}
             }
             if (tabs.length === 0) {
-                addTab("index.js", "// 上書き保存に対応しました！(一部ブラウザ)\n// ミニマップも潰れず綺麗に表示されます。\n\nfunction superFast() {\n  console.log('Very Fast!');\n}");
+                addTab("index.js", "// 整形＆コメント削除機能追加！\n// ミニマップも潰れず高解像度に。\n\nfunction start() {\n  console.log('Ultra Fast Minimap');\n}");
             }
             if (!activeTabId) activeTabId = tabs[0].id;
 
             editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
-                mode: "javascript",
-                theme: "monokai",
-                lineNumbers: true,
-                lineWrapping: true,
-                inputStyle: "contenteditable", // スマホのネイティブ選択(青ピン)を有効化
-                spellcheck: false,
-                autocorrect: false,
-                viewportMargin: 20 // ★超軽量化: 画面外のコードは描画しない
+                mode: "javascript", theme: "monokai", lineNumbers: true, lineWrapping: true,
+                inputStyle: "contenteditable", spellcheck: false, autocorrect: false, viewportMargin: 20
             });
 
             let minimapTimeout;
             editor.on('change', () => {
                 const tab = tabs.find(t => t.id === activeTabId);
                 if (tab) { tab.content = editor.getValue(); saveState(); }
-                // タイピング時はデバウンスしてミニマップを描画(軽量化)
                 clearTimeout(minimapTimeout);
-                minimapTimeout = setTimeout(drawMinimap, 400);
+                minimapTimeout = setTimeout(drawMinimap, 400); // 描画は少し待ってから実行
             });
 
-            // スクロール処理をrequestAnimationFrameで極限まで軽くする
             let isScrolling = false;
             editor.on('scroll', () => {
                 if (!isScrolling) {
                     window.requestAnimationFrame(() => {
-                        updateMinimapSlider();
+                        updateMinimapSlider(); // スクロール時は再描画せず位置だけズラす（超軽量）
                         isScrolling = false;
                     });
                     isScrolling = true;
@@ -210,7 +218,6 @@
             tabs.forEach(tab => {
                 const el = document.createElement('div');
                 el.className = `tab ${tab.id === activeTabId ? 'active' : ''}`;
-                // 上書き対象(fileHandleあり)の場合はアイコンを変える
                 const icon = tab.fileHandle ? '<i class="fas fa-file-code" style="color:#66d9ef; margin-right:5px;"></i>' : '';
                 el.innerHTML = `${icon}<span class="tab-name">${tab.name}</span><span class="tab-close"><i class="fas fa-times"></i></span>`;
                 
@@ -227,14 +234,11 @@
         }
 
         function saveState() {
-            // fileHandleはJSON化できないため、名前と中身だけ保存
             const safeTabs = tabs.map(t => ({ id: t.id, name: t.name, content: t.content }));
-            localStorage.setItem('mobileCodePro_V6', JSON.stringify({ tabs: safeTabs, activeTabId }));
+            localStorage.setItem('mobileCodePro_V7', JSON.stringify({ tabs: safeTabs, activeTabId }));
         }
 
-        // --- ボタンアクション (File System Access API 対応) ---
-
-        // 開く (上書き対応ブラウザなら File System Access API を使う)
+        // --- ファイル操作 ---
         document.getElementById('btn-open').onclick = async () => {
             if (window.showOpenFilePicker) {
                 try {
@@ -242,16 +246,11 @@
                     const file = await fileHandle.getFile();
                     const content = await file.text();
                     addTab(file.name, content, fileHandle);
-                    showToast("ファイルを開きました (上書き保存可能)");
-                    return;
-                } catch(e) { /* キャンセル時は何もしない */ }
-            } else {
-                // 非対応ブラウザ (iOS Safariなど) は従来のinput
-                ui.fileInput.click();
-            }
+                    showToast("ファイルを開きました");
+                } catch(e) {}
+            } else { ui.fileInput.click(); }
         };
 
-        // 従来のフォールバック
         ui.fileInput.addEventListener('change', (e) => {
             Array.from(e.target.files).forEach(f => {
                 const r = new FileReader(); r.onload = (ev) => addTab(f.name, ev.target.result); r.readAsText(f);
@@ -259,27 +258,19 @@
             e.target.value = '';
         });
 
-        // 上書き保存
         document.getElementById('btn-save').onclick = async () => {
             const tab = tabs.find(x => x.id === activeTabId);
-            saveState(); // まずブラウザ内に保存
-
+            saveState();
             if (tab.fileHandle && window.showOpenFilePicker) {
                 try {
-                    // スマホ本体のローカルファイルを直接上書き！
                     const writable = await tab.fileHandle.createWritable();
                     await writable.write(tab.content);
                     await writable.close();
-                    showToast("本体のファイルに上書き保存しました！");
-                } catch(e) {
-                    showToast("上書き失敗 (DL保存を利用してください)");
-                }
-            } else {
-                showToast("ブラウザ内に保存しました (この端末は直接上書き非対応です)");
-            }
+                    showToast("本体に上書き保存しました！");
+                } catch(e) { showToast("上書き失敗"); }
+            } else { showToast("ブラウザ内に保存しました"); }
         };
 
-        // その他機能
         document.getElementById('btn-new-tab').onclick = () => { const n = prompt("ファイル名", "new.js"); if(n) addTab(n); };
         document.getElementById('btn-search').onclick = () => editor.execCommand('find');
         document.getElementById('btn-replace').onclick = () => editor.execCommand('replace');
@@ -288,7 +279,6 @@
             const n = prompt("新しいファイル名", t.name);
             if(n) { t.name = n; renderTabs(); loadTabContent(activeTabId); saveState(); }
         };
-        // DL保存 (常に新規ファイルとしてダウンロード)
         document.getElementById('btn-save-as').onclick = () => {
             const t = tabs.find(x => x.id === activeTabId);
             const a = document.createElement("a");
@@ -296,47 +286,112 @@
             a.download = t.name; a.click(); showToast("ダウンロードしました");
         };
 
+        // --- Beautify (コード整形) ---
+        document.getElementById('btn-format').onclick = () => {
+            const mode = editor.getOption("mode");
+            let val = editor.getValue();
+            let formatted = val;
+            try {
+                if (mode === "javascript" && window.js_beautify) formatted = js_beautify(val, { indent_size: 2, space_in_empty_paren: true });
+                else if (mode === "xml" && window.html_beautify) formatted = html_beautify(val, { indent_size: 2 });
+                else if (mode === "css" && window.css_beautify) formatted = css_beautify(val, { indent_size: 2 });
+                
+                if (formatted !== val) { editor.setValue(formatted); showToast("コードを整形しました"); }
+                else { showToast("既に整形されています"); }
+            } catch(e) { showToast("整形に失敗しました"); }
+        };
+
+        // --- コメント削除 ---
+        document.getElementById('btn-remove-comments').onclick = () => {
+            const mode = editor.getOption("mode");
+            let val = editor.getValue();
+            let newVal = val;
+            
+            if (mode === "javascript") {
+                // 文字列の中の // 等は保護しつつコメントを削除
+                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|\/\*[\s\S]*?\*\/|\/\/.*/g, (match, quote) => quote ? match : "");
+            } else if (mode === "xml") {
+                newVal = val.replace(/<!--[\s\S]*?-->/g, "");
+            } else if (mode === "css") {
+                newVal = val.replace(/\/\*[\s\S]*?\*\//g, "");
+            }
+            
+            if (newVal !== val) { editor.setValue(newVal); showToast("コメントを削除しました"); }
+            else { showToast("コメントは見つかりませんでした"); }
+        };
+
         // ==========================================
-        // ★ ミニマップ描画エンジン (潰れ防止・超軽量版)
+        // ★ ミニマップ描画エンジン (超高解像度 ＆ スクロール対応)
         // ==========================================
+        const MINIMAP_LINE_HEIGHT = 2.5; // 絶対に潰れない固定の高さ
+        const MINIMAP_CHAR_WIDTH = 1.2;
+
         function drawMinimap() {
             if (!editor) return;
-            const ch = ui.track.clientHeight;
-            const cw = ui.track.clientWidth;
-            ui.canvas.width = cw;
-            ui.canvas.height = ch;
+            const lines = editor.getValue().split('\n');
+            const totalLines = Math.max(lines.length, 1);
             
-            // 背景をダークに塗りつぶす (alpha:false のため必須)
+            const cw = ui.track.clientWidth;
+            // 画面高さを下回らないように最低限の高さを確保
+            const ch = Math.max(totalLines * MINIMAP_LINE_HEIGHT, ui.track.clientHeight);
+            
+            // Retina等の高解像度ディスプレイに合わせて鮮明に描画
+            const dpr = window.devicePixelRatio || 1;
+            ui.canvas.width = cw * dpr;
+            ui.canvas.height = ch * dpr;
+            ui.canvas.style.width = cw + 'px';
+            ui.canvas.style.height = ch + 'px';
+            
+            ctx.scale(dpr, dpr);
             ctx.fillStyle = "#1e1e1e";
             ctx.fillRect(0, 0, cw, ch);
             
-            const lines = editor.getValue().split('\n');
-            const totalLines = Math.max(lines.length, 1);
-            const lineHeight = ch / totalLines;
+            // Path2DでGPUバッチ描画（何万行でも一瞬で完了）
+            const pNormal = new Path2D();
+            const pKeyword = new Path2D();
+            const pComment = new Path2D();
+            const pString = new Path2D();
             
-            // ★超軽量化アルゴリズム: 
-            // コードが長すぎて1行が0.5px未満になる場合、数行を飛ばして描画（処理落ち＆潰れを完璧に防ぐ）
-            const step = Math.max(1, Math.floor(1 / lineHeight));
+            // 簡易ハイライト用正規表現
+            const rxKeyword = /^(var|let|const|function|class|if|for|while|return|import|export|switch|case|default|break|continue|new)\b/;
+            const rxComment = /^\/\/|^\/\*|^<!--/;
             
-            // コードの色（潰れないように少し透過した薄いグレー）
-            ctx.fillStyle = "rgba(180, 180, 180, 0.5)"; 
-            
-            for (let i = 0; i < lines.length; i += step) {
+            for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                const len = line.length;
-                if (len === 0) continue;
+                if (line.length === 0) continue;
                 
                 const indent = line.search(/\S|$/);
-                if (indent === len) continue; // 空白行はスキップ
+                if (indent === line.length) continue; 
                 
-                // x座標: インデントに応じて右にずらす, y座標: 画面高さ, w: 文字数, h: 潰れないように最低1pxを確保
-                const x = indent * 0.8;
-                const y = i * lineHeight;
-                const w = Math.min((len - indent) * 0.6, cw - x); // 右端ではみ出さないように
-                const h = Math.max(lineHeight * step * 0.8, 1);   // 隙間をあけつつ最低1px
+                const text = line.trim();
+                const y = i * MINIMAP_LINE_HEIGHT;
+                const x = indent * MINIMAP_CHAR_WIDTH;
                 
-                ctx.fillRect(x, y, w, h);
+                // 行の先頭で色を判定
+                let target = pNormal;
+                if (rxComment.test(text)) target = pComment;
+                else if (rxKeyword.test(text)) target = pKeyword;
+                else if (text.startsWith("'") || text.startsWith('"') || text.startsWith('`')) target = pString;
+                
+                // 単語ごとに分割して描画（本物っぽく見せる）
+                const words = text.split(/(\s+)/);
+                let cx = x;
+                for (const w of words) {
+                    const wLen = w.length;
+                    if (w.trim().length > 0) {
+                        target.rect(cx, y, wLen * MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT * 0.7);
+                    }
+                    cx += wLen * MINIMAP_CHAR_WIDTH;
+                    if (cx > cw) break; // はみ出し防止
+                }
             }
+            
+            // 一括で塗りつぶし
+            ctx.fillStyle = "#a6e22e"; ctx.fill(pComment);  // 緑
+            ctx.fillStyle = "#f92672"; ctx.fill(pKeyword);  // ピンク
+            ctx.fillStyle = "#e6db74"; ctx.fill(pString);   // 黄色
+            ctx.fillStyle = "rgba(220, 220, 220, 0.7)"; ctx.fill(pNormal); // 白グレー
+            
             updateMinimapSlider();
         }
 
@@ -344,37 +399,51 @@
             if (!editor) return;
             const info = editor.getScrollInfo();
             const trackH = ui.track.clientHeight;
+            const mapHeight = Math.max(editor.lineCount() * MINIMAP_LINE_HEIGHT, trackH);
             
-            const heightRatio = info.clientHeight / Math.max(info.height, 1);
-            const topRatio = info.top / Math.max(info.height, 1);
+            const maxScrollTop = Math.max(1, info.height - info.clientHeight);
+            const scrollRatio = info.top / maxScrollTop;
             
-            ui.slider.style.height = `${heightRatio * trackH}px`;
-            ui.slider.style.top = `${topRatio * trackH}px`;
+            const sliderH = (info.clientHeight / info.height) * mapHeight;
+            const sliderTop = (info.top / info.height) * mapHeight;
+            
+            ui.slider.style.height = `${sliderH}px`;
+            ui.slider.style.top = `${sliderTop}px`;
+            
+            // ミニマップ自体のスクロール (transformで超軽量移動)
+            let mapScrollY = 0;
+            if (mapHeight > trackH) {
+                mapScrollY = scrollRatio * (mapHeight - trackH);
+            }
+            ui.content.style.transform = `translateY(-${mapScrollY}px)`;
         }
 
         // --- 爆速ドラッグスクロール ---
         let isDraggingMinimap = false;
+
         function handleMinimapDrag(e) {
             e.preventDefault();
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             const rect = ui.track.getBoundingClientRect();
-            const y = Math.max(0, Math.min(clientY - rect.top, rect.height)); 
             
-            const ratio = y / rect.height;
+            let trackY = clientY - rect.top;
+            trackY = Math.max(0, Math.min(trackY, rect.height));
+            
+            // トラック内でのタップ割合をそのままエディタのスクロール割合にする
+            const ratio = trackY / rect.height;
             const info = editor.getScrollInfo();
+            const maxScrollTop = Math.max(1, info.height - info.clientHeight);
             
-            // 指の位置が画面の中央になるようにワープ
-            editor.scrollTo(0, (info.height * ratio) - (info.clientHeight / 2));
+            editor.scrollTo(0, ratio * maxScrollTop);
         }
 
         ui.track.addEventListener('touchstart', (e) => { isDraggingMinimap = true; handleMinimapDrag(e); }, {passive: false});
         ui.track.addEventListener('touchmove', (e) => { if(isDraggingMinimap) handleMinimapDrag(e); }, {passive: false});
-        ui.track.addEventListener('touchend', () => { isDraggingMinimap = false; });
-        
         ui.track.addEventListener('mousedown', (e) => { isDraggingMinimap = true; handleMinimapDrag(e); });
+        
         window.addEventListener('mousemove', (e) => { if(isDraggingMinimap) handleMinimapDrag(e); });
+        window.addEventListener('touchend', () => { isDraggingMinimap = false; });
         window.addEventListener('mouseup', () => { isDraggingMinimap = false; });
-
         window.addEventListener('resize', () => { setTimeout(drawMinimap, 100); });
     </script>
 </body>
