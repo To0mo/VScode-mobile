@@ -34,7 +34,7 @@
         #editor-wrapper { flex: 1; height: 100%; overflow: hidden; }
         .CodeMirror { height: 100%; font-family: 'SF Mono', Consolas, monospace; font-size: 14px; background: #272822; }
 
-        /* カスタム検索＆置換パネル */
+        /* 検索＆置換パネル */
         #search-panel {
             position: absolute; top: 0; left: 0; width: 100%; background: rgba(30, 30, 30, 0.95);
             border-bottom: 1px solid #000; z-index: 50; display: none; flex-direction: column; padding: 8px;
@@ -55,7 +55,8 @@
             width: 65px; background: #1e1e1e; border-left: 1px solid #333;
             position: relative; overflow: hidden; touch-action: none; cursor: pointer; flex-shrink: 0;
         }
-        #minimap-content { position: absolute; width: 100%; top: 0; left: 0; will-change: transform; }
+        /* GPUレンダリング強制 */
+        #minimap-content { position: absolute; width: 100%; top: 0; left: 0; will-change: transform; transform: translate3d(0,0,0); }
         #minimap-canvas { width: 100%; display: block; }
         #minimap-slider {
             position: absolute; width: 100%; background: rgba(255, 255, 255, 0.12);
@@ -94,12 +95,11 @@
                 <textarea id="code-editor"></textarea>
             </div>
             
-            <!-- カスタム検索＆置換パネル -->
             <div id="search-panel">
                 <div class="s-row">
                     <input type="text" id="s-input" class="s-input" placeholder="検索...">
-                    <button id="t-case" class="s-toggle" title="大文字小文字を区別">Aa</button>
-                    <button id="t-word" class="s-toggle" title="単語単位で検索">\b</button>
+                    <button id="t-case" class="s-toggle" title="大文字小文字区別">Aa</button>
+                    <button id="t-word" class="s-toggle" title="単語単位">\b</button>
                     <button id="s-prev" class="s-btn s-btn-icon"><i class="fas fa-arrow-up"></i></button>
                     <button id="s-next" class="s-btn s-btn-icon"><i class="fas fa-arrow-down"></i></button>
                     <button id="s-close" class="s-btn s-btn-icon" style="background:#b22222;"><i class="fas fa-times"></i></button>
@@ -111,7 +111,6 @@
                 </div>
             </div>
 
-            <!-- ミニマップ -->
             <div id="minimap-track">
                 <div id="minimap-content">
                     <canvas id="minimap-canvas"></canvas>
@@ -165,16 +164,14 @@
         }
 
         window.onload = function() {
-            const savedData = localStorage.getItem('mobileCodePro_V8');
+            const savedData = localStorage.getItem('mobileCodePro_V9');
             if (savedData) {
                 try {
                     const state = JSON.parse(savedData);
                     tabs = state.tabs || []; activeTabId = state.activeTabId || null;
                 } catch(e) {}
             }
-            if (tabs.length === 0) {
-                addTab("index.js", "// 高性能検索パネル追加！\n// 整形・空行削除も完璧です。\n\nfunction start() {\n  console.log('Mobile Code Pro V8');\n}");
-            }
+            if (tabs.length === 0) addTab("index.js", "// 独自フォーマッタ・スクロール超最適化\n\nfunction init() {\n  console.log('Mobile Code Pro V9');\n}");
             if (!activeTabId) activeTabId = tabs[0].id;
 
             editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
@@ -190,215 +187,162 @@
                 minimapTimeout = setTimeout(drawMinimap, 400);
             });
 
-            let isScrolling = false;
-            editor.on('scroll', () => {
-                if (!isScrolling) {
-                    window.requestAnimationFrame(() => { updateMinimapSlider(); isScrolling = false; });
-                    isScrolling = true;
+            // ★ スクロールの極限軽量化 (DOMから直接読み取り)
+            const scroller = editor.getScrollerElement();
+            let ticking = false;
+            scroller.addEventListener('scroll', () => {
+                if (!ticking) {
+                    window.requestAnimationFrame(() => { updateMinimapSlider(scroller); ticking = false; });
+                    ticking = true;
                 }
-            });
+            }, { passive: true });
 
             renderTabs(); loadTabContent(activeTabId); setTimeout(drawMinimap, 100);
         };
 
-        // --- タブ管理 ---
         function addTab(name, content = "", fileHandle = null) {
-            const newId = "t_" + Date.now();
-            tabs.push({ id: newId, name: name, content: content, fileHandle: fileHandle });
-            activeTabId = newId; saveState();
-            if (editor) { renderTabs(); loadTabContent(newId); }
+            const newId = "t_" + Date.now(); tabs.push({ id: newId, name: name, content: content, fileHandle: fileHandle });
+            activeTabId = newId; saveState(); if (editor) { renderTabs(); loadTabContent(newId); }
         }
-
         function loadTabContent(id) {
             const tab = tabs.find(t => t.id === id);
             if (tab && editor) {
                 const ext = tab.name.split('.').pop().toLowerCase();
-                let mode = "javascript";
-                if(ext === 'html') mode = "xml"; if(ext === 'css') mode = "css";
+                let mode = "javascript"; if(ext === 'html') mode = "xml"; if(ext === 'css') mode = "css";
                 editor.setOption("mode", mode);
                 if (editor.getValue() !== tab.content) editor.setValue(tab.content);
                 setTimeout(drawMinimap, 50);
             }
         }
-
         function renderTabs() {
             ui.tabs.innerHTML = '';
             tabs.forEach(tab => {
-                const el = document.createElement('div');
-                el.className = `tab ${tab.id === activeTabId ? 'active' : ''}`;
+                const el = document.createElement('div'); el.className = `tab ${tab.id === activeTabId ? 'active' : ''}`;
                 const icon = tab.fileHandle ? '<i class="fas fa-file-code" style="color:#66d9ef; margin-right:5px;"></i>' : '';
                 el.innerHTML = `${icon}<span class="tab-name">${tab.name}</span><span class="tab-close"><i class="fas fa-times"></i></span>`;
                 el.querySelector('.tab-name').onclick = () => { activeTabId = tab.id; renderTabs(); loadTabContent(activeTabId); saveState(); };
                 el.querySelector('.tab-close').onclick = (e) => {
                     e.stopPropagation(); tabs = tabs.filter(t => t.id !== tab.id);
-                    if (tabs.length === 0) addTab("untitled.txt", "");
-                    else if (activeTabId === tab.id) activeTabId = tabs[tabs.length - 1].id;
+                    if (tabs.length === 0) addTab("untitled.txt", ""); else if (activeTabId === tab.id) activeTabId = tabs[tabs.length - 1].id;
                     renderTabs(); loadTabContent(activeTabId); saveState();
                 };
                 ui.tabs.appendChild(el);
             });
         }
-
         function saveState() {
             const safeTabs = tabs.map(t => ({ id: t.id, name: t.name, content: t.content }));
-            localStorage.setItem('mobileCodePro_V8', JSON.stringify({ tabs: safeTabs, activeTabId }));
+            localStorage.setItem('mobileCodePro_V9', JSON.stringify({ tabs: safeTabs, activeTabId }));
         }
 
         // --- ツールバーアクション ---
         document.getElementById('btn-open').onclick = async () => {
-            if (window.showOpenFilePicker) {
-                try {
-                    const [fh] = await window.showOpenFilePicker();
-                    const f = await fh.getFile(); const c = await f.text();
-                    addTab(f.name, c, fh); showToast("ファイルを開きました");
-                } catch(e) {}
-            } else { ui.fileInput.click(); }
+            if (window.showOpenFilePicker) { try { const [fh] = await window.showOpenFilePicker(); const f = await fh.getFile(); addTab(f.name, await f.text(), fh); showToast("開きました"); } catch(e) {} } else { ui.fileInput.click(); }
         };
-
-        ui.fileInput.addEventListener('change', (e) => {
-            Array.from(e.target.files).forEach(f => {
-                const r = new FileReader(); r.onload = (ev) => addTab(f.name, ev.target.result); r.readAsText(f);
-            }); e.target.value = '';
-        });
-
+        ui.fileInput.addEventListener('change', (e) => { Array.from(e.target.files).forEach(f => { const r = new FileReader(); r.onload = (ev) => addTab(f.name, ev.target.result); r.readAsText(f); }); e.target.value = ''; });
         document.getElementById('btn-save').onclick = async () => {
             const tab = tabs.find(x => x.id === activeTabId); saveState();
-            if (tab.fileHandle && window.showOpenFilePicker) {
-                try {
-                    const w = await tab.fileHandle.createWritable();
-                    await w.write(tab.content); await w.close(); showToast("本体に上書き保存しました！");
-                } catch(e) { showToast("上書き失敗"); }
-            } else { showToast("ブラウザ内に保存しました"); }
+            if (tab.fileHandle && window.showOpenFilePicker) { try { const w = await tab.fileHandle.createWritable(); await w.write(tab.content); await w.close(); showToast("本体に上書き保存しました！"); } catch(e) { showToast("上書き失敗"); } } else { showToast("ブラウザ内に保存しました"); }
         };
-
         document.getElementById('btn-new-tab').onclick = () => { const n = prompt("ファイル名", "new.js"); if(n) addTab(n); };
-        document.getElementById('btn-rename').onclick = () => {
-            const t = tabs.find(x => x.id === activeTabId); const n = prompt("新しいファイル名", t.name);
-            if(n) { t.name = n; renderTabs(); loadTabContent(activeTabId); saveState(); }
-        };
-        document.getElementById('btn-save-as').onclick = () => {
-            const t = tabs.find(x => x.id === activeTabId);
-            const a = document.createElement("a");
-            a.href = window.URL.createObjectURL(new Blob([t.content], { type: "text/plain" }));
-            a.download = t.name; a.click(); showToast("ダウンロードしました");
-        };
+        document.getElementById('btn-rename').onclick = () => { const t = tabs.find(x => x.id === activeTabId); const n = prompt("新しいファイル名", t.name); if(n) { t.name = n; renderTabs(); loadTabContent(activeTabId); saveState(); } };
+        document.getElementById('btn-save-as').onclick = () => { const t = tabs.find(x => x.id === activeTabId); const a = document.createElement("a"); a.href = window.URL.createObjectURL(new Blob([t.content], { type: "text/plain" })); a.download = t.name; a.click(); showToast("ダウンロードしました"); };
 
-        // --- 整形 (CodeMirror標準のスマートインデントを利用・高速かつ確実) ---
+        // ★ 完全独自の超高精度インデントフォーマッタ (CodeMirrorのバグ回避)
         document.getElementById('btn-format').onclick = () => {
-            editor.operation(() => {
-                const lines = editor.lineCount();
-                for (let i = 0; i < lines; i++) editor.indentLine(i, "smart");
-            });
-            showToast("インデントを整形しました");
+            const mode = editor.getOption("mode");
+            const code = editor.getValue();
+            const lines = code.split('\n');
+            let out = []; let indent = 0; const tab = "  "; // 2スペース
+            
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (!line) { out.push(""); continue; }
+
+                // コメントと文字列を無視した「純粋なコード部分」だけでカッコをカウントする
+                let cleanLine = line.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1/g, "")
+                                    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/, "");
+
+                // 現在の行の先頭が閉じカッコならインデントを下げる
+                if (mode === "javascript" || mode === "css") {
+                    if (cleanLine.match(/^[\}\]\)]/)) indent = Math.max(0, indent - 1);
+                } else if (mode === "xml") {
+                    if (cleanLine.match(/^<\/[a-zA-Z0-9-]+>/)) indent = Math.max(0, indent - 1);
+                }
+
+                out.push(tab.repeat(indent) + line);
+
+                // 行内の開きと閉じの差分を計算し、次の行からのインデントに反映
+                if (mode === "javascript" || mode === "css") {
+                    let open = (cleanLine.match(/[\{\[\(]/g) || []).length;
+                    let close = (cleanLine.match(/[\}\]\)]/g) || []).length;
+                    indent += (open - close);
+                } else if (mode === "xml") {
+                    let open = (cleanLine.match(/<[a-zA-Z0-9-]+(?![^>]*\/>)[^>]*>/g) || []).length;
+                    let close = (cleanLine.match(/<\/[a-zA-Z0-9-]+>/g) || []).length;
+                    indent += (open - close);
+                }
+                if (indent < 0) indent = 0;
+            }
+            const formatted = out.join('\n');
+            if (formatted !== code) { editor.setValue(formatted); showToast("インデントを整形しました"); }
+            else { showToast("既に整形されています"); }
         };
 
-        // --- コメント削除 (行ごと消す対応) ---
+        // --- コメント削除 ---
         document.getElementById('btn-remove-comments').onclick = () => {
-            const mode = editor.getOption("mode");
-            let val = editor.getValue(); let newVal = val;
-            
-            if (mode === "javascript") {
-                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*\/\*[\s\S]*?\*\/\r?\n?|^[ \t]*\/\/.*\r?\n?|\/\*[\s\S]*?\*\/|\/\/.*/gm, (m, q) => q ? m : "");
-            } else if (mode === "xml") {
-                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*<!--[\s\S]*?-->\r?\n?|<!--[\s\S]*?-->/gm, (m, q) => q ? m : "");
-            } else if (mode === "css") {
-                newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*\/\*[\s\S]*?\*\/\r?\n?|\/\*[\s\S]*?\*\//gm, (m, q) => q ? m : "");
-            }
-            
-            if (newVal !== val) { editor.setValue(newVal); showToast("コメントを削除しました"); }
-            else { showToast("コメントは見つかりませんでした"); }
+            const mode = editor.getOption("mode"); let val = editor.getValue(); let newVal = val;
+            if (mode === "javascript") newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*\/\*[\s\S]*?\*\/\r?\n?|^[ \t]*\/\/.*\r?\n?|\/\*[\s\S]*?\*\/|\/\/.*/gm, (m, q) => q ? m : "");
+            else if (mode === "xml") newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*<!--[\s\S]*?-->\r?\n?|<!--[\s\S]*?-->/gm, (m, q) => q ? m : "");
+            else if (mode === "css") newVal = val.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1|^[ \t]*\/\*[\s\S]*?\*\/\r?\n?|\/\*[\s\S]*?\*\//gm, (m, q) => q ? m : "");
+            if (newVal !== val) { editor.setValue(newVal); showToast("コメントを削除しました"); } else { showToast("コメントなし"); }
         };
 
         // --- 空行削除 ---
         document.getElementById('btn-remove-empty').onclick = () => {
-            let val = editor.getValue();
-            let newVal = val.replace(/^[ \t]*$\r?\n/gm, ""); // 空白だけの行を改行ごと削除
-            if (newVal !== val) { editor.setValue(newVal); showToast("空行を削除しました"); }
-            else { showToast("空行はありません"); }
+            let val = editor.getValue(); let newVal = val.replace(/^[ \t]*$\r?\n/gm, "");
+            if (newVal !== val) { editor.setValue(newVal); showToast("空行を削除しました"); } else { showToast("空行なし"); }
         };
 
-        // ==========================================
-        // ★ カスタム検索＆置換パネルの実装
-        // ==========================================
-        let searchCursor = null;
-        let lastQueryText = null;
-        let matchCase = false;
-        let wholeWord = false;
-
-        const btnSearch = document.getElementById('btn-search');
-        const btnReplace = document.getElementById('btn-replace');
-        const tCase = document.getElementById('t-case');
-        const tWord = document.getElementById('t-word');
-
-        btnSearch.onclick = () => { ui.sPanel.style.display = 'flex'; ui.rRow.style.display = 'none'; ui.sInput.focus(); };
-        btnReplace.onclick = () => { ui.sPanel.style.display = 'flex'; ui.rRow.style.display = 'flex'; ui.sInput.focus(); };
+        // --- 検索＆置換パネル ---
+        let searchCursor = null; let lastQueryText = null; let matchCase = false; let wholeWord = false;
+        document.getElementById('btn-search').onclick = () => { ui.sPanel.style.display = 'flex'; ui.rRow.style.display = 'none'; ui.sInput.focus(); };
+        document.getElementById('btn-replace').onclick = () => { ui.sPanel.style.display = 'flex'; ui.rRow.style.display = 'flex'; ui.sInput.focus(); };
         document.getElementById('s-close').onclick = () => { ui.sPanel.style.display = 'none'; searchCursor = null; editor.focus(); };
-
-        tCase.onclick = () => { matchCase = !matchCase; tCase.classList.toggle('active', matchCase); lastQueryText = null; };
-        tWord.onclick = () => { wholeWord = !wholeWord; tWord.classList.toggle('active', wholeWord); lastQueryText = null; };
+        document.getElementById('t-case').onclick = function() { matchCase = !matchCase; this.classList.toggle('active', matchCase); lastQueryText = null; };
+        document.getElementById('t-word').onclick = function() { wholeWord = !wholeWord; this.classList.toggle('active', wholeWord); lastQueryText = null; };
 
         function doSearch(reverse) {
-            const q = ui.sInput.value;
-            if (!q) return;
-
+            const q = ui.sInput.value; if (!q) return;
             if (lastQueryText !== q) searchCursor = null;
+            let query = q; let escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+            if (wholeWord) query = new RegExp('\\b' + escaped + '\\b', matchCase ? '' : 'i');
+            else if (!matchCase) query = new RegExp(escaped, 'i');
 
-            let query = q;
-            let escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-            if (wholeWord) {
-                query = new RegExp('\\b' + escaped + '\\b', matchCase ? '' : 'i');
-            } else if (!matchCase) {
-                query = new RegExp(escaped, 'i');
-            }
-
-            if (!searchCursor) {
-                searchCursor = editor.getSearchCursor(query, editor.getCursor());
-                lastQueryText = q;
-            }
-
+            if (!searchCursor) { searchCursor = editor.getSearchCursor(query, editor.getCursor()); lastQueryText = q; }
             let found = reverse ? searchCursor.findPrevious() : searchCursor.findNext();
-            if (!found) { // 一番下/上まで行ったらループする
+            if (!found) {
                 searchCursor = editor.getSearchCursor(query, reverse ? CodeMirror.Pos(editor.lastLine()) : CodeMirror.Pos(editor.firstLine(), 0));
                 found = reverse ? searchCursor.findPrevious() : searchCursor.findNext();
             }
-
-            if (found) {
-                editor.setSelection(searchCursor.from(), searchCursor.to());
-                editor.scrollIntoView({from: searchCursor.from(), to: searchCursor.to()}, 30);
-            } else { showToast("見つかりません"); }
+            if (found) { editor.setSelection(searchCursor.from(), searchCursor.to()); editor.scrollIntoView({from: searchCursor.from(), to: searchCursor.to()}, 30); }
+            else { showToast("見つかりません"); }
         }
-
         document.getElementById('s-prev').onclick = () => doSearch(true);
         document.getElementById('s-next').onclick = () => doSearch(false);
         ui.sInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(e.shiftKey); };
-
-        document.getElementById('r-btn').onclick = () => {
-            const r = ui.rInput.value;
-            if (searchCursor && editor.somethingSelected()) { searchCursor.replace(r); }
-            doSearch(false);
-        };
-
+        document.getElementById('r-btn').onclick = () => { if (searchCursor && editor.somethingSelected()) searchCursor.replace(ui.rInput.value); doSearch(false); };
         document.getElementById('r-all-btn').onclick = () => {
-            const q = ui.sInput.value; const r = ui.rInput.value;
-            if (!q) return;
-            
-            let query = q; let escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-            if (wholeWord) query = new RegExp('\\b' + escaped + '\\b', matchCase ? 'g' : 'gi');
-            else query = new RegExp(escaped, matchCase ? 'g' : 'gi');
-
-            editor.operation(() => {
-                let cursor = editor.getSearchCursor(query);
-                let count = 0;
-                while (cursor.findNext()) { cursor.replace(r); count++; }
-                showToast(`${count}件置換しました`);
-            });
-            searchCursor = null; // リセット
+            const q = ui.sInput.value; const r = ui.rInput.value; if (!q) return;
+            let escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+            let query = new RegExp(wholeWord ? '\\b' + escaped + '\\b' : escaped, matchCase ? 'g' : 'gi');
+            editor.operation(() => { let cursor = editor.getSearchCursor(query); let count = 0; while (cursor.findNext()) { cursor.replace(r); count++; } showToast(`${count}件置換`); });
+            searchCursor = null;
         };
 
         // ==========================================
-        // ★ ミニマップ描画エンジン
+        // ★ ミニマップ描画エンジン (四角排除＆Monokaiカラー完全一致)
         // ==========================================
-        const MINIMAP_LINE_HEIGHT = 2.5; const MINIMAP_CHAR_WIDTH = 1.2;
+        const MINIMAP_LINE_HEIGHT = 2.5; const MINIMAP_CHAR_WIDTH = 1.0;
 
         function drawMinimap() {
             if (!editor) return;
@@ -415,54 +359,67 @@
             ctx.scale(dpr, dpr); ctx.fillStyle = "#1e1e1e"; ctx.fillRect(0, 0, cw, ch);
             
             const pNormal = new Path2D(); const pKeyword = new Path2D();
-            const pComment = new Path2D(); const pString = new Path2D();
+            const pComment = new Path2D(); const pString = new Path2D(); const pFunc = new Path2D();
             
             const rxKeyword = /^(var|let|const|function|class|if|for|while|return|import|export|switch|case|default|break|continue|new)\b/;
-            const rxComment = /^\/\/|^\/\*|^<!--/;
+            const rxFunc = /^[a-zA-Z_$][a-zA-Z0-9_$]*|^<[a-zA-Z0-9-]+/; // 関数やHTMLタグっぽいやつ
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i]; if (line.length === 0) continue;
                 const indent = line.search(/\S|$/); if (indent === line.length) continue; 
                 
-                const text = line.trim(); const y = i * MINIMAP_LINE_HEIGHT; const x = indent * MINIMAP_CHAR_WIDTH;
-                let target = pNormal;
-                if (rxComment.test(text)) target = pComment;
-                else if (rxKeyword.test(text)) target = pKeyword;
-                else if (text.startsWith("'") || text.startsWith('"') || text.startsWith('`')) target = pString;
+                const text = line.trim(); const y = i * MINIMAP_LINE_HEIGHT; 
+                let cx = indent * MINIMAP_CHAR_WIDTH;
                 
-                const words = text.split(/(\s+)/); let cx = x;
-                for (const w of words) {
-                    const wLen = w.length;
-                    if (w.trim().length > 0) target.rect(cx, y, wLen * MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT * 0.7);
-                    cx += wLen * MINIMAP_CHAR_WIDTH; if (cx > cw) break;
+                // 単語、文字列、記号などを大まかに分解
+                const tokens = text.match(/(\/\*[\s\S]*?\*\/|\/\/.*|(['"`])(?:(?!\2)[^\\]|\\.)*\2|[a-zA-Z_$][a-zA-Z0-9_$]*|[0-9]+|[^a-zA-Z0-9_$\s]+|\s+)/g) || [];
+                
+                for (let t of tokens) {
+                    let tLen = t.length;
+                    if (t.trim().length > 0) {
+                        let target = pNormal;
+                        if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('<!--')) target = pComment;
+                        else if (t.startsWith("'") || t.startsWith('"') || t.startsWith('`')) target = pString;
+                        else if (rxKeyword.test(t)) target = pKeyword;
+                        else if (rxFunc.test(t)) target = pFunc;
+                        
+                        // ★ ブロックではなく「高さ1pxの線」を描くことでVSCodeのコードの見た目を再現
+                        target.rect(cx, y + 0.75, tLen * MINIMAP_CHAR_WIDTH, 1);
+                    }
+                    cx += tLen * MINIMAP_CHAR_WIDTH;
+                    if (cx > cw) break;
                 }
             }
             
-            ctx.fillStyle = "#a6e22e"; ctx.fill(pComment);  
-            ctx.fillStyle = "#f92672"; ctx.fill(pKeyword);  
-            ctx.fillStyle = "#e6db74"; ctx.fill(pString);   
-            ctx.fillStyle = "rgba(220, 220, 220, 0.7)"; ctx.fill(pNormal); 
+            // Monokaiカラーに完全一致
+            ctx.fillStyle = "#75715e"; ctx.fill(pComment);  // 茶色(コメント)
+            ctx.fillStyle = "#f92672"; ctx.fill(pKeyword);  // ピンク(キーワード)
+            ctx.fillStyle = "#e6db74"; ctx.fill(pString);   // 黄色(文字列)
+            ctx.fillStyle = "#a6e22e"; ctx.fill(pFunc);     // 黄緑(関数/タグ)
+            ctx.fillStyle = "rgba(248, 248, 242, 0.5)"; ctx.fill(pNormal); // 薄い白(通常文字)
             
-            updateMinimapSlider();
+            updateMinimapSlider(editor.getScrollerElement());
         }
 
-        function updateMinimapSlider() {
-            if (!editor) return;
-            const info = editor.getScrollInfo();
+        function updateMinimapSlider(scroller = editor.getScrollerElement()) {
             const trackH = ui.track.clientHeight;
+            const scrollH = scroller.scrollHeight;
+            const clientH = scroller.clientHeight;
+            const scrollTop = scroller.scrollTop;
+            
+            const maxScrollTop = Math.max(1, scrollH - clientH);
+            const scrollRatio = scrollTop / maxScrollTop;
+            
             const mapHeight = Math.max(editor.lineCount() * MINIMAP_LINE_HEIGHT, trackH);
             
-            const maxScrollTop = Math.max(1, info.height - info.clientHeight);
-            const scrollRatio = info.top / maxScrollTop;
-            
-            const sliderH = (info.clientHeight / info.height) * mapHeight;
-            const sliderTop = (info.top / info.height) * mapHeight;
+            const sliderH = (clientH / scrollH) * mapHeight;
+            const sliderTop = (scrollTop / scrollH) * mapHeight;
             
             ui.slider.style.height = `${sliderH}px`; ui.slider.style.top = `${sliderTop}px`;
             
             let mapScrollY = 0;
             if (mapHeight > trackH) mapScrollY = scrollRatio * (mapHeight - trackH);
-            ui.content.style.transform = `translateY(-${mapScrollY}px)`;
+            ui.content.style.transform = `translate3d(0, -${mapScrollY}px, 0)`; // GPUアクセラレーションで移動
         }
 
         let isDraggingMinimap = false;
@@ -472,8 +429,8 @@
             const rect = ui.track.getBoundingClientRect();
             let trackY = Math.max(0, Math.min(clientY - rect.top, rect.height));
             const ratio = trackY / rect.height;
-            const info = editor.getScrollInfo();
-            const maxScrollTop = Math.max(1, info.height - info.clientHeight);
+            const scroller = editor.getScrollerElement();
+            const maxScrollTop = Math.max(1, scroller.scrollHeight - scroller.clientHeight);
             editor.scrollTo(0, ratio * maxScrollTop);
         }
 
